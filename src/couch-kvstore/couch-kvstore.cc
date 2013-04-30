@@ -1442,7 +1442,8 @@ couchstore_error_t CouchKVStore::saveDocs(uint16_t vbid, uint64_t rev, Doc **doc
         Db *db = NULL;
         uint64_t newFileRev;
         retry_save_docs = false;
-        errCode = openDB(vbid, fileRev, &db, 0, &newFileRev);
+        errCode = openDB(vbid, fileRev, &db, COUCHSTORE_OPEN_FLAG_CREATE,
+                         &newFileRev);
         if (errCode != COUCHSTORE_SUCCESS) {
             LOG(EXTENSION_LOG_WARNING,
                 "Warning: failed to open database, vbucketId = %d "

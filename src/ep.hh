@@ -350,17 +350,17 @@ public:
      * You can use this to queue io related jobs.  Don't do stupid things with
      * it.
      */
-    Dispatcher* getDispatcher(void) {
-        assert(dispatcher);
-        return dispatcher;
+    Dispatcher* getDispatcher(int shardId) {
+        assert(rwDispatcherQ[shardId]);
+        return rwDispatcherQ[shardId];
     }
 
     /**
      * Get the current read-only IO dispatcher.
      */
-    Dispatcher* getRODispatcher(void) {
-        assert(roDispatcher);
-        return roDispatcher;
+    Dispatcher* getRODispatcher(int shardId) {
+        assert(roDispatcherQ[shardId]);
+        return roDispatcherQ[shardId];
     }
 
     /**
@@ -752,8 +752,11 @@ private:
     bool                            doPersistence;
     KVStore                        *auxUnderlying;
     StorageProperties              *storageProperties;
-    Dispatcher                     *dispatcher;
+    std::vector<Dispatcher *>      rwDispatcherQ;
+    std::vector<Dispatcher *>      roDispatcherQ;
     Dispatcher                     *roDispatcher;
+    // Dispatcher                     *dispatcher;
+    // Dispatcher                     *roDispatcher;
     Dispatcher                     *auxIODispatcher;
     Dispatcher                     *nonIODispatcher;
     Warmup                         *warmupTask;

@@ -1406,7 +1406,8 @@ void EventuallyPersistentEngine::destroy(bool force) {
     stats.forceShutdown = force;
     stopEngineThreads();
     shared_ptr<DispatcherCallback> dist(new StatSnap(this, true));
-    getEpStore()->getDispatcher()->schedule(dist, NULL, Priority::StatSnapPriority,
+    Dispatcher *dispatcher = getEpStore()->getDispatcher(EP_PRIMARY_SHARD);
+    dispatcher->schedule(dist, NULL, Priority::StatSnapPriority,
                                             0, false, true);
     tapConnMap->shutdownAllTapConnections();
 }
@@ -3245,10 +3246,10 @@ static void doDispatcherStat(const char *prefix, const DispatcherState &ds,
 
 ENGINE_ERROR_CODE EventuallyPersistentEngine::doDispatcherStats(const void *cookie,
                                                                 ADD_STAT add_stat) {
-    DispatcherState ds(epstore->getDispatcher()->getDispatcherState());
+    DispatcherState ds(epstore->getDispatcher(EP_PRIMARY_SHARD)->getDispatcherState());
     doDispatcherStat("dispatcher", ds, cookie, add_stat);
 
-    DispatcherState rods(epstore->getRODispatcher()->getDispatcherState());
+    DispatcherState rods(epstore->getRODispatcher(EP_PRIMARY_SHARD)->getDispatcherState());
     doDispatcherStat("ro_dispatcher", rods, cookie, add_stat);
 
     DispatcherState tapds(epstore->getAuxIODispatcher()->getDispatcherState());

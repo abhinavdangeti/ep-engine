@@ -280,8 +280,12 @@ EventuallyPersistentStore::EventuallyPersistentStore(EventuallyPersistentEngine 
 
     storageProperties = new StorageProperties(true, true, true, true);
 
-    dispatcher = new Dispatcher(theEngine, "RW_Dispatcher");
-    roDispatcher = new Dispatcher(theEngine, "RO_Dispatcher");
+    for (size_t n = 0; n < config.getMaxNumShards(); ++n) {
+        Dispatcher *rw = new Dispatcher(theEngine, "RW_Dispatcher");
+        rwDispatcherQ.push_back(rw);
+        Dispatcher *ro = new Dispatcher(theEngine, "RO_Dispatcher");
+        roDispatcherQ.push_back(ro);
+    }
 
     auxUnderlying = KVStoreFactory::create(stats, config, true);
     assert(auxUnderlying);
@@ -468,8 +472,9 @@ bool EventuallyPersistentStore::initialize() {
 
     if (mutationLog.isEnabled()) {
         shared_ptr<MutationLogCompactor> compactor(new MutationLogCompactor(this));
-        dispatcher->schedule(compactor, NULL, Priority::MutationLogCompactorPriority,
-                             mlogCompactorConfig.getSleepTime());
+        Dispatcher *d = rwDispatcherQ[EP_PRIMARY_SHARD];
+        d->schedule(compactor, NULL, Priority::MutationLogCompactorPriority,
+                    mlogCompactorConfig.getSleepTime());
     }
     return true;
 }
@@ -483,8 +488,12 @@ EventuallyPersistentStore::~EventuallyPersistentStore() {
     nonIODispatcher->stop(stats.forceShutdown);
 
     delete warmupTask;
-    delete dispatcher;
-    delete roDispatcher;
+    for (size_t n = 0; n < engine.getConfiguration().getMaxNumShards(); ++n) {
+        delete rwDispatcherQ[n];
+        delete roDispatcherQ[n];
+    }
+    rwDispatcherQ.clear();
+    roDispatcherQ.clear();
     delete auxIODispatcher;
     delete nonIODispatcher;
     delete auxUnderlying;
@@ -493,14 +502,18 @@ EventuallyPersistentStore::~EventuallyPersistentStore() {
 }
 
 void EventuallyPersistentStore::startDispatcher() {
-    dispatcher->start();
-    roDispatcher->start();
+    for (size_t n = 0; n < engine.getConfiguration().getMaxNumShards(); ++n) {
+        rwDispatcherQ[n]->start();
+        roDispatcherQ[n]->start();
+    }
     auxIODispatcher->start();
 }
 
 void EventuallyPersistentStore::stopDispatcher(bool force) {
-    dispatcher->stop(force);
-    roDispatcher->stop(force);
+    for (size_t n = 0; n < engine.getConfiguration().getMaxNumShards(); ++n) {
+        rwDispatcherQ[n]->stop(force);
+        roDispatcherQ[n]->stop(force);
+    }
     auxIODispatcher->stop(force);
 }
 
@@ -519,7 +532,7 @@ Warmup* EventuallyPersistentStore::getWarmup(void) const {
 bool EventuallyPersistentStore::startFlusher() {
     for (uint16_t i = 0; i < vbMap.numShards; ++i) {
         Flusher *flusher = vbMap.shards[i]->getFlusher();
-        flusher->start(dispatcher);
+        flusher->start(rwDispatcherQ[i]);
     }
     return true;
 }
@@ -578,7 +591,7 @@ bool EventuallyPersistentStore::startBgFetcher() {
                 "Falied to start bg fetcher for shard %d", i);
             return false;
         }
-        bgfetcher->start(roDispatcher);
+        bgfetcher->start(roDispatcherQ[i]);
     }
     return true;
 }
@@ -947,7 +960,7 @@ void EventuallyPersistentStore::scheduleVBSnapshot(const Priority &p) {
         for (size_t i = 0; i < vbMap.numShards; ++i) {
             shard = vbMap.shards[i];
             if (shard->setHighPriorityVbSnapshotFlag(true)) {
-                dispatcher->schedule(shared_ptr<DispatcherCallback>(
+                rwDispatcherQ[i]->schedule(shared_ptr<DispatcherCallback>(
                     new SnapshotVBucketsCallback(this, p, i)), NULL, p, 0, false);
             }
         }
@@ -955,7 +968,7 @@ void EventuallyPersistentStore::scheduleVBSnapshot(const Priority &p) {
         for (size_t i = 0; i < vbMap.numShards; ++i) {
             shard = vbMap.shards[i];
             if (shard->setLowPriorityVbSnapshotFlag(true)) {
-                dispatcher->schedule(shared_ptr<DispatcherCallback>(
+                rwDispatcherQ[i]->schedule(shared_ptr<DispatcherCallback>(
                     new SnapshotVBucketsCallback(this, p, i)), NULL, p, 0, false);
             }
         }
@@ -968,13 +981,13 @@ void EventuallyPersistentStore::scheduleVBSnapshot(const Priority &p,
     KVShard *shard = vbMap.shards[shardId];
     if (p == Priority::VBucketPersistHighPriority) {
         if (shard->setHighPriorityVbSnapshotFlag(true)) {
-            dispatcher->schedule(shared_ptr<DispatcherCallback>(
+            rwDispatcherQ[shardId]->schedule(shared_ptr<DispatcherCallback>(
                 new SnapshotVBucketsCallback(this, p, shardId)),
                 NULL, p, 0, false);
         }
     } else {
         if (shard->setLowPriorityVbSnapshotFlag(true)) {
-            dispatcher->schedule(shared_ptr<DispatcherCallback>(
+            rwDispatcherQ[shardId]->schedule(shared_ptr<DispatcherCallback>(
                 new SnapshotVBucketsCallback(this, p, shardId)),
                 NULL, p, 0, false);
         }
@@ -1043,8 +1056,9 @@ void EventuallyPersistentStore::scheduleVBDeletion(RCPtr<VBucket> &vb,
                                                                       vb->getId(),
                                                                       cookie,
                                                                       recreate));
-    dispatcher->schedule(cb, NULL, Priority::VBucketDeletionPriority,
-                         delay, false);
+        uint16_t shardId = vbMap.getShard(vb->getId())->getId();
+        Dispatcher *rw = getDispatcher(shardId);
+        rw->schedule(cb, NULL, Priority::VBucketDeletionPriority, delay, false);
     }
 }
 
@@ -1303,8 +1317,9 @@ void EventuallyPersistentStore::bgFetch(const std::string &key,
         ss << "Queued a background fetch, now at " << bgFetchQueue.get()
            << std::endl;
         LOG(EXTENSION_LOG_DEBUG, "%s", ss.str().c_str());
-        roDispatcher->schedule(dcb, NULL, Priority::BgFetcherGetMetaPriority,
-                               bgFetchDelay);
+        uint16_t shardId = vbMap.getShard(vbucket)->getId();
+        Dispatcher *ro = getRODispatcher(shardId);
+        ro->schedule(dcb, NULL, Priority::BgFetcherGetMetaPriority, bgFetchDelay);
     }
 }
 
@@ -1546,7 +1561,9 @@ EventuallyPersistentStore::statsVKey(const std::string &key,
                                                                             cookie));
         bgFetchQueue++;
         assert(bgFetchQueue > 0);
-        roDispatcher->schedule(dcb, NULL, Priority::VKeyStatBgFetcherPriority, bgFetchDelay);
+        uint16_t shardId = vbMap.getShard(vbucket)->getId();
+        Dispatcher *ro = getRODispatcher(shardId);
+        ro->schedule(dcb, NULL, Priority::VKeyStatBgFetcherPriority, bgFetchDelay);
         return ENGINE_EWOULDBLOCK;
     } else {
         return ENGINE_KEY_ENOENT;
@@ -2273,7 +2290,8 @@ void EventuallyPersistentStore::warmupCompleted() {
     shared_ptr<StatSnap> sscb(new StatSnap(&engine));
     // "0" sleep_time means that the first snapshot task will be executed right after
     // warmup. Subsequent snapshot tasks will be scheduled every 60 sec by default.
-    dispatcher->schedule(sscb, NULL, Priority::StatSnapPriority, 0);
+    rwDispatcherQ[EP_PRIMARY_SHARD]->schedule(sscb, NULL,
+                                              Priority::StatSnapPriority, 0);
 }
 
 static void warmupLogCallback(void *arg, uint16_t vb,
