@@ -273,7 +273,7 @@ EventuallyPersistentStore::EventuallyPersistentStore(EventuallyPersistentEngine 
     accessLog(engine.getConfiguration().getAlogPath(),
               engine.getConfiguration().getAlogBlockSize()),
     diskFlushAll(false), bgFetchDelay(0), lastTransTimePerItem(0),
-    snapshotVBState(false)
+    snapshotVBState(false), bgfetcher(NULL)
 {
     Configuration &config = engine.getConfiguration();
     doPersistence = getenv("EP_NO_PERSISTENCE") == NULL;
@@ -283,9 +283,11 @@ EventuallyPersistentStore::EventuallyPersistentStore(EventuallyPersistentEngine 
     for (size_t n = 0; n < config.getMaxNumShards(); ++n) {
         Dispatcher *rw = new Dispatcher(theEngine, "RW_Dispatcher");
         rwDispatcherQ.push_back(rw);
-        Dispatcher *ro = new Dispatcher(theEngine, "RO_Dispatcher");
-        roDispatcherQ.push_back(ro);
+        // Dispatcher *ro = new Dispatcher(theEngine, "RO_Dispatcher");
+        // roDispatcherQ.push_back(ro);
     }
+    Dispatcher *ro = new Dispatcher(theEngine, "RO_Dispatcher");
+    roDispatcherQ.push_back(ro);
 
     auxUnderlying = KVStoreFactory::create(stats, config, true);
     assert(auxUnderlying);
@@ -430,6 +432,7 @@ bool EventuallyPersistentStore::initialize() {
             "FATAL: Failed to create and start flushers");
         return false;
     }
+    bgfetcher = new BgFetcher(this, NULL, NULL, stats);
     if (!startBgFetcher()) {
         LOG(EXTENSION_LOG_WARNING,
            "FATAL: Failed to create and start bgfetchers");
@@ -490,8 +493,10 @@ EventuallyPersistentStore::~EventuallyPersistentStore() {
     delete warmupTask;
     for (size_t n = 0; n < engine.getConfiguration().getMaxNumShards(); ++n) {
         delete rwDispatcherQ[n];
-        delete roDispatcherQ[n];
+        // delete roDispatcherQ[n];
     }
+    delete bgfetcher;
+    delete roDispatcherQ[0];
     rwDispatcherQ.clear();
     roDispatcherQ.clear();
     delete auxIODispatcher;
@@ -504,16 +509,18 @@ EventuallyPersistentStore::~EventuallyPersistentStore() {
 void EventuallyPersistentStore::startDispatcher() {
     for (size_t n = 0; n < engine.getConfiguration().getMaxNumShards(); ++n) {
         rwDispatcherQ[n]->start();
-        roDispatcherQ[n]->start();
+        // roDispatcherQ[n]->start();
     }
+    roDispatcherQ[0]->start();
     auxIODispatcher->start();
 }
 
 void EventuallyPersistentStore::stopDispatcher(bool force) {
     for (size_t n = 0; n < engine.getConfiguration().getMaxNumShards(); ++n) {
         rwDispatcherQ[n]->stop(force);
-        roDispatcherQ[n]->stop(force);
+        // roDispatcherQ[n]->stop(force);
     }
+    roDispatcherQ[0]->stop(force);
     auxIODispatcher->stop(force);
 }
 
@@ -584,6 +591,8 @@ void EventuallyPersistentStore::wakeUpFlusher() {
 }
 
 bool EventuallyPersistentStore::startBgFetcher() {
+    return true;
+#if 0
     for (uint16_t i = 0; i < vbMap.numShards; i++) {
         BgFetcher *bgfetcher = vbMap.shards[i]->getBgFetcher();
         if (bgfetcher == NULL) {
@@ -594,9 +603,11 @@ bool EventuallyPersistentStore::startBgFetcher() {
         bgfetcher->start(roDispatcherQ[i]);
     }
     return true;
+#endif
 }
 
 void EventuallyPersistentStore::stopBgFetcher() {
+#if 0
     for (uint16_t i = 0; i < vbMap.numShards; i++) {
         BgFetcher *bgfetcher = vbMap.shards[i]->getBgFetcher();
         if (multiBGFetchEnabled() && bgfetcher->pendingJob()) {
@@ -607,6 +618,7 @@ void EventuallyPersistentStore::stopBgFetcher() {
         LOG(EXTENSION_LOG_INFO, "Stopping bg fetcher for underlying storage");
         bgfetcher->stop();
     }
+#endif
 }
 
 RCPtr<VBucket> EventuallyPersistentStore::getVBucket(uint16_t vbid,
@@ -1295,6 +1307,7 @@ void EventuallyPersistentStore::bgFetch(const std::string &key,
                                         bg_fetch_type_t type) {
     std::stringstream ss;
 
+#if 0
     // NOTE: mutil-fetch feature will be disabled for metadata
     // read until MB-5808 is fixed
     if (multiBGFetchEnabled() && type != BG_FETCH_METADATA) {
@@ -1321,6 +1334,17 @@ void EventuallyPersistentStore::bgFetch(const std::string &key,
         Dispatcher *ro = getRODispatcher(shardId);
         ro->schedule(dcb, NULL, Priority::BgFetcherGetMetaPriority, bgFetchDelay);
     }
+#endif
+    shared_ptr<BGFetchCallback> dcb(new BGFetchCallback(this, key,
+                                    vbucket,
+                                    rowid, cookie, type));
+    bgFetchQueue++;
+    assert(bgFetchQueue > 0);
+    ss << "Queued a background fetch, now at " << bgFetchQueue.get()
+        << std::endl;
+    LOG(EXTENSION_LOG_DEBUG, "%s", ss.str().c_str());
+    roDispatcherQ[0]->schedule(dcb, NULL,
+                               Priority::BgFetcherPriority, bgFetchDelay);
 }
 
 GetValue EventuallyPersistentStore::getInternal(const std::string &key,
@@ -1561,9 +1585,13 @@ EventuallyPersistentStore::statsVKey(const std::string &key,
                                                                             cookie));
         bgFetchQueue++;
         assert(bgFetchQueue > 0);
+#if 0
         uint16_t shardId = vbMap.getShard(vbucket)->getId();
         Dispatcher *ro = getRODispatcher(shardId);
         ro->schedule(dcb, NULL, Priority::VKeyStatBgFetcherPriority, bgFetchDelay);
+#endif
+        roDispatcherQ[0]->schedule(dcb, NULL,
+                                  Priority::VKeyStatBgFetcherPriority, bgFetchDelay);
         return ENGINE_EWOULDBLOCK;
     } else {
         return ENGINE_KEY_ENOENT;

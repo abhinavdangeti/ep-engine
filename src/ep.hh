@@ -359,8 +359,11 @@ public:
      * Get the current read-only IO dispatcher.
      */
     Dispatcher* getRODispatcher(int shardId) {
+#if 0
         assert(roDispatcherQ[shardId]);
         return roDispatcherQ[shardId];
+#endif
+        return roDispatcherQ[0];
     }
 
     /**
@@ -757,6 +760,7 @@ private:
     Dispatcher                     *roDispatcher;
     // Dispatcher                     *dispatcher;
     // Dispatcher                     *roDispatcher;
+    BgFetcher                      *bgfetcher;
     Dispatcher                     *auxIODispatcher;
     Dispatcher                     *nonIODispatcher;
     Warmup                         *warmupTask;
