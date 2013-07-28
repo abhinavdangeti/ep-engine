@@ -6,6 +6,7 @@
 
 TapThrottle::TapThrottle(Configuration &config, EPStats &s) :
     queueCap(config.getTapThrottleQueueCap()),
+    disk_threshold(config.getDiskUsageThreshold()),
     capPercent(config.getTapThrottleCapPcnt()),
     stats(s)
 {}
@@ -25,8 +26,14 @@ bool TapThrottle::hasSomeMemory() const {
     return memoryUsed < (maxSize * stats.tapThrottleThreshold);
 }
 
+bool TapThrottle::hasDiskSpace() const {
+    size_t diskUsed = static_cast<size_t>(stats.diskUsage);
+
+    return diskUsed < disk_threshold;
+}
+
 bool TapThrottle::shouldProcess() const {
-    return persistenceQueueSmallEnough() && hasSomeMemory();
+    return persistenceQueueSmallEnough() && hasSomeMemory() && hasDiskSpace();
 }
 
 void TapThrottle::adjustWriteQueueCap(size_t totalItems) {

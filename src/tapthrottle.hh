@@ -30,8 +30,10 @@ public:
 private:
     bool persistenceQueueSmallEnough() const;
     bool hasSomeMemory() const;
+    bool hasDiskSpace() const;
 
     ssize_t queueCap;
+    size_t disk_threshold;
     size_t capPercent;
     EPStats &stats;
 };

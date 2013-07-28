@@ -1235,6 +1235,7 @@ EventuallyPersistentEngine::EventuallyPersistentEngine(GET_SERVER_API get_server
     ENGINE_HANDLE_V1::errinfo = NULL;
     ENGINE_HANDLE_V1::aggregate_stats = NULL;
 
+    disk_threshold = configuration.getDiskUsageThreshold();
     serverApi = getServerApiFunc();
     memset(&info, 0, sizeof(info));
     info.info.description = "EP engine v" VERSION;
@@ -1470,9 +1471,14 @@ ENGINE_ERROR_CODE  EventuallyPersistentEngine::store(const void *cookie,
     item *i = NULL;
 
     it->setVBucketId(vbucket);
+    //size_t disk_threshold = configuration.getDiskUsageThreshold();
 
     switch (operation) {
     case OPERATION_CAS:
+        if (stats.diskUsage > disk_threshold) {
+            ret = ENGINE_ENOMEM;
+            break;
+        }
         if (it->getCas() == 0) {
             // Using a cas command with a cas wildcard doesn't make sense
             ret = ENGINE_NOT_STORED;
@@ -1480,6 +1486,10 @@ ENGINE_ERROR_CODE  EventuallyPersistentEngine::store(const void *cookie,
         }
         // FALLTHROUGH
     case OPERATION_SET:
+        if (stats.diskUsage > disk_threshold) {
+            ret = ENGINE_ENOMEM;
+            break;
+        }
         if (isDegradedMode()) {
             return ENGINE_TMPFAIL;
         }
@@ -1491,6 +1501,10 @@ ENGINE_ERROR_CODE  EventuallyPersistentEngine::store(const void *cookie,
         break;
 
     case OPERATION_ADD:
+        if (stats.diskUsage > disk_threshold) {
+            ret = ENGINE_ENOMEM;
+            break;
+        }
         if (isDegradedMode()) {
             return ENGINE_TMPFAIL;
         }
@@ -1507,6 +1521,10 @@ ENGINE_ERROR_CODE  EventuallyPersistentEngine::store(const void *cookie,
         break;
 
     case OPERATION_REPLACE:
+        if (stats.diskUsage > disk_threshold) {
+            ret = ENGINE_ENOMEM;
+            break;
+        }
         // @todo this isn't atomic!
         ret = get(cookie, &i, it->getKey().c_str(),
                   it->getNKey(), vbucket);
@@ -1528,6 +1546,10 @@ ENGINE_ERROR_CODE  EventuallyPersistentEngine::store(const void *cookie,
         break;
     case OPERATION_APPEND:
     case OPERATION_PREPEND:
+        if (stats.diskUsage > disk_threshold) {
+            ret = ENGINE_ENOMEM;
+            break;
+        }
         do {
             if ((ret = get(cookie, &i, it->getKey().c_str(),
                            it->getNKey(), vbucket)) == ENGINE_SUCCESS) {
@@ -2669,6 +2691,8 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::doEngineStats(const void *cookie,
     add_casted_stat("ep_access_scanner_task_time", timestr, add_stat, cookie);
 
     add_casted_stat("ep_startup_time", startupTime, add_stat, cookie);
+
+    add_casted_stat("ep_disk_usage", epstats.diskUsage, add_stat, cookie);
 
     if (getConfiguration().isWarmup()) {
         Warmup *wp = epstore->getWarmup();

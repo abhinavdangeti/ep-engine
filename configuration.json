@@ -123,6 +123,11 @@
             "dynamic": false,
             "type": "std::string"
         },
+        "disk_usage_threshold": {
+            "default": "90",
+            "descr": "The disk usage threshold to default at 90%",
+            "type": "size_t"
+        },
         "exp_pager_stime": {
             "default": "3600",
             "type": "size_t"

@@ -42,5 +42,6 @@ const Priority Priority::TapConnectionReaperPriority("tapconnection_reaper_prior
 const Priority Priority::VBMemoryDeletionPriority("vb_memory_deletion_priority", 6);
 const Priority Priority::ItemPagerPriority("item_pager_priority", 7);
 const Priority Priority::BackfillTaskPriority("backfill_task_priority", 8);
+const Priority Priority::DUTrackerPriority("disk_usage_tracker_priority", 10);
 const Priority Priority::HTResizePriority("hashtable_resize_priority", 211);
 const Priority Priority::TapResumePriority("tap_resume_priority", 316);

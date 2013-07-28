@@ -770,6 +770,7 @@ private:
     size_t maxItemSize;
     size_t getlDefaultTimeout;
     size_t getlMaxTimeout;
+    size_t disk_threshold;
     EPStats stats;
     Configuration configuration;
     Atomic<bool> trafficEnabled;

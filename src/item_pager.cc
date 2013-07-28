@@ -233,3 +233,12 @@ bool ExpiredItemPager::callback(Dispatcher &d, TaskId &t) {
     d.snooze(t, sleepTime);
     return true;
 }
+
+bool DiskUsageTracker::callback(Dispatcher &d, TaskId &t) {
+    Configuration &cfg = store.getEPEngine().getConfiguration();
+    stats.diskUsage = getDiskUsage(cfg.getDbname().c_str());
+
+    // dispatcher snoozes for 10 seconds
+    d.snooze(t, 10);
+    return true;
+}

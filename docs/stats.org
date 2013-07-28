@@ -302,6 +302,7 @@ For introductory information on stats within membase, start with the
 |                                    | during warmup                          |
 | ep_warmup_thread                   | The status of the warmup thread        |
 | ep_warmup_time                     | The amount of time warmup took         |
+| ep_disk_usage                      | Current disk usage %                   |
 
 
 ** vBucket total stats

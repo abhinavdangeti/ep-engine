@@ -93,6 +93,8 @@ public:
     Atomic<size_t> flusher_todo;
     //! Number of transaction commits.
     Atomic<size_t> flusherCommits;
+    // Current Disk usage %
+    size_t diskUsage;
     //! Total time spent flushing.
     Atomic<size_t> cumulativeFlushTime;
     //! Total time spent committing.

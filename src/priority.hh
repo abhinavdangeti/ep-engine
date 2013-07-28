@@ -36,6 +36,7 @@ public:
     static const Priority TapResumePriority;
     static const Priority TapConnectionReaperPriority;
     static const Priority HTResizePriority;
+    static const Priority DUTrackerPriority;
 
     bool operator==(const Priority &other) const {
         return other.getPriorityValue() == this->priority;

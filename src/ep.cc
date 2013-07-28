@@ -336,6 +336,9 @@ bool EventuallyPersistentStore::initialize() {
     shared_ptr<DispatcherCallback> htr(new HashtableResizer(this));
     nonIODispatcher->schedule(htr, NULL, Priority::HTResizePriority, 10);
 
+    shared_ptr<DispatcherCallback> dut(new DiskUsageTracker(this, stats));
+    nonIODispatcher->schedule(dut, NULL, Priority::DUTrackerPriority, 10);
+
     size_t checkpointRemoverInterval = config.getChkRemoverStime();
     shared_ptr<DispatcherCallback> chk_cb(new ClosedUnrefCheckpointRemover(this,
                                                                            stats,
@@ -1985,6 +1988,7 @@ int EventuallyPersistentStore::flushVBucket(uint16_t vbid) {
                 static_cast<double>(items_flushed);
             stats.commit_time.set(commit_time);
             stats.cumulativeCommitTime.incr(commit_time);
+            stats.diskUsage = getDiskUsage(engine.getConfiguration().getDbname().c_str());
             stats.cumulativeFlushTime.incr(ep_current_time() - flush_start);
             stats.flusher_todo.set(0);
         }

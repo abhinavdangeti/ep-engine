@@ -89,4 +89,29 @@ private:
     bool                       available;
 };
 
+/**
+ * Dispatcher job responsible for updating the stat
+ * that tracks disk usage
+ */
+class DiskUsageTracker : public DispatcherCallback {
+public:
+
+    /**
+     * Construct a DiskUsageTracker.
+     *
+     * @param s the store (where we'll visit)
+     * @param st the stats
+     */
+    DiskUsageTracker(EventuallyPersistentStore *s, EPStats &st) :
+        store(*s), stats(st) {}
+
+    bool callback(Dispatcher &d, TaskId &t);
+
+    std::string description() { return std::string("Tracking disk usage."); }
+
+private:
+    EventuallyPersistentStore &store;
+    EPStats                   &stats;
+};
+
 #endif /* ITEM_PAGER_HH */
