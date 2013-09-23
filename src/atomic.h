@@ -493,6 +493,18 @@ public:
         return (bool)value;
     }
 
+    static void incrRefCount(T *ptr) {
+        if (ptr) {
+            static_cast<RCValue *>(ptr)->_rc_incref();
+        }
+    }
+
+    static void decrRefCount(T *ptr) {
+        if (ptr && static_cast<RCValue *>(ptr)->_rc_decref() == 0) {
+            delete ptr;
+        }
+    }
+
 private:
     T *gimme() const {
         if (value) {

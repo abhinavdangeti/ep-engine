@@ -292,13 +292,12 @@ public:
      * @param key the key to fetch
      * @param vbucket the vbucket from which to retrieve the key
      * @param cookie the connection cookie
-     * @param queueBG if true, automatically queue a background fetch if necessary
      * @param exptime the new expiry time for the object
      *
      * @return a GetValue representing the result of the request
      */
     GetValue getAndUpdateTtl(const std::string &key, uint16_t vbucket,
-                             const void *cookie, bool queueBG, time_t exptime);
+                             const void *cookie, time_t exptime);
 
     /**
      * Retrieve an item from the disk for vkey stats
@@ -508,7 +507,8 @@ public:
     Warmup* getWarmup(void) const;
 
     ENGINE_ERROR_CODE getKeyStats(const std::string &key, uint16_t vbucket,
-                                  key_stats &kstats, bool wantsDeleted=false);
+                                  const void* cookie, key_stats &kstats,
+                                  bool bgfetch, bool wantsDeleted=false);
 
     std::string validateKey(const std::string &key,  uint16_t vbucket,
                             Item &diskItem);
@@ -640,6 +640,10 @@ public:
     KVStore *getOneROUnderlying(void);
     KVStore *getOneRWUnderlying(void);
 
+    item_eviction_policy_t getItemEvictionPolicy(void) const {
+        return eviction_policy;
+    }
+
 protected:
     // During the warmup phase we might want to enable external traffic
     // at a given point in time.. The LoadStorageKvPairCallback will be
@@ -767,6 +771,7 @@ private:
     size_t lastTransTimePerItem;
     size_t itemExpiryWindow;
     Atomic<bool> snapshotVBState;
+    item_eviction_policy_t eviction_policy;
 
     DISALLOW_COPY_AND_ASSIGN(EventuallyPersistentStore);
 };

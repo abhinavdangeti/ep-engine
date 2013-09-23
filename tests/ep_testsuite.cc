@@ -1341,19 +1341,6 @@ static enum test_result test_get_delete_missing_file(ENGINE_HANDLE *h, ENGINE_HA
     // the item is supposedly stored
     check(errorCode == ENGINE_TMPFAIL, "Expected tmp fail for get");
 
-    int total_del_items = get_int_stat(h, h1, "ep_total_del_items");
-    int total_persisted = get_int_stat(h, h1, "ep_total_persisted");
-
-    // ep engine must still attempt to delete the item and return
-    // ENGINE_SUCCESS
-    errorCode = del(h, h1, "key", 0, 0);
-    check(errorCode == ENGINE_SUCCESS, "Expected success for del");
-
-    wait_for_flusher_to_settle(h, h1);
-    check(total_del_items == get_int_stat(h, h1, "ep_total_del_items"),
-          "expected no change in total_del_items stat");
-    check(total_persisted == get_int_stat(h, h1, "ep_total_persisted"),
-          "expected no change in total_persisted stat");
     return SUCCESS;
 }
 
@@ -4217,14 +4204,14 @@ static enum test_result test_value_eviction(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *
     check(store(h, h1, NULL, OPERATION_SET,"k1", "v1", &i, 0, 0) == ENGINE_SUCCESS,
           "Failed to fail to store an item.");
     h1->release(h, NULL, i);
-    evict_key(h, h1, "k1", 0, "Can't eject: Dirty or a small object.", true);
+    evict_key(h, h1, "k1", 0, "Can't eject: Dirty object.", true);
     start_persistence(h, h1);
     wait_for_flusher_to_settle(h, h1);
     stop_persistence(h, h1);
     check(store(h, h1, NULL, OPERATION_SET,"k2", "v2", &i, 0, 1) == ENGINE_SUCCESS,
           "Failed to fail to store an item.");
     h1->release(h, NULL, i);
-    evict_key(h, h1, "k2", 1, "Can't eject: Dirty or a small object.", true);
+    evict_key(h, h1, "k2", 1, "Can't eject: Dirty object.", true);
     start_persistence(h, h1);
     wait_for_flusher_to_settle(h, h1);
 

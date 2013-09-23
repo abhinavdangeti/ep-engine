@@ -222,8 +222,9 @@ void LoadStorageKVPairCallback::callback(GetValue &val) {
         }
         bool succeeded(false);
         int retry = 2;
+        item_eviction_policy_t policy = epstore->getItemEvictionPolicy();
         do {
-            switch (vb->ht.insert(*i, shouldEject(), val.isPartial())) {
+            switch (vb->ht.insert(*i, policy, shouldEject(), val.isPartial())) {
             case NOMEM:
                 if (retry == 2) {
                     if (hasPurged) {
@@ -304,18 +305,19 @@ void LoadStorageKVPairCallback::callback(GetValue &val) {
 void LoadStorageKVPairCallback::purge() {
     class EmergencyPurgeVisitor : public VBucketVisitor {
     public:
-        EmergencyPurgeVisitor(EPStats &s) : stats(s) {}
+        EmergencyPurgeVisitor(EventuallyPersistentStore *store) :
+            epstore(store) {}
 
         void visit(StoredValue *v) {
-            v->ejectValue(stats, currentBucket->ht);
+            currentBucket->ht.unlocked_ejectItem(v, epstore->getItemEvictionPolicy());
         }
     private:
-        EPStats &stats;
+        EventuallyPersistentStore *epstore;
     };
 
     std::vector<int> vbucketIds(vbuckets.getBuckets());
     std::vector<int>::iterator it;
-    EmergencyPurgeVisitor epv(stats);
+    EmergencyPurgeVisitor epv(epstore);
     for (it = vbucketIds.begin(); it != vbucketIds.end(); ++it) {
         int vbid = *it;
         RCPtr<VBucket> vb = vbuckets.getBucket(vbid);

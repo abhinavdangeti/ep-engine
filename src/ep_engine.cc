@@ -3116,7 +3116,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::doKeyStats(const void *cookie,
         return rv;
     }
 
-    rv = epstore->getKeyStats(key, vbid, kstats);
+    rv = epstore->getKeyStats(key, vbid, cookie, kstats, true, false);
     if (rv == ENGINE_SUCCESS) {
         std::string valid("this_is_a_bug");
         if (validate) {
@@ -3443,7 +3443,8 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::observe(const void* cookie,
         uint16_t keystatus = 0;
         struct key_stats kstats;
         memset(&kstats, 0, sizeof(key_stats));
-        ENGINE_ERROR_CODE rv = epstore->getKeyStats(key, vb_id, kstats, true);
+        ENGINE_ERROR_CODE rv = epstore->getKeyStats(key, vb_id, cookie, kstats,
+                                                    false, true);
         if (rv == ENGINE_SUCCESS) {
             if (kstats.logically_deleted) {
                 keystatus = OBS_STATE_LOGICAL_DEL;
@@ -3516,9 +3517,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::touch(const void *cookie,
     if (exptime != 0) {
         exptime = serverApi->core->abstime(serverApi->core->realtime(exptime));
     }
-    GetValue gv(epstore->getAndUpdateTtl(k, vbucket, cookie,
-                                         request->request.opcode != PROTOCOL_BINARY_CMD_TOUCH,
-                                         (time_t)exptime));
+    GetValue gv(epstore->getAndUpdateTtl(k, vbucket, cookie, (time_t)exptime));
     ENGINE_ERROR_CODE rv = gv.getStatus();
     if (rv == ENGINE_SUCCESS) {
         Item *it = gv.getValue();

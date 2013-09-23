@@ -220,6 +220,13 @@ EventuallyPersistentStore::EventuallyPersistentStore(EventuallyPersistentEngine 
     //         thread), but we can't put it in the RO dispatcher either,
     //         because that would block the background fetches..
     warmupTask = new Warmup(this);
+
+    const std::string &policy = config.getItemEvictionPolicy();
+    if (policy.compare("value") == 0) {
+        eviction_policy = VALUE_ONLY;
+    } else {
+        eviction_policy = METADATA_AND_VALUE;
+    }
 }
 
 class WarmupWaitListener : public WarmupStateListener {
@@ -467,7 +474,10 @@ public:
                 bool deleted = vb->ht.unlocked_del(vk.second, bucket_num);
                 assert(deleted);
             } else if (v && v->isExpired(startTime) && !v->isDeleted()) {
-                vb->ht.unlocked_softDelete(v, 0);
+                // If an item is identified as "expired" in memory, it means that
+                // the item's metadata is resident at least. Therefore, it doesn't
+                // require bg_metadata_fetch to do a soft deleiton.
+                vb->ht.unlocked_softDelete(v, 0, false);
                 uint64_t revSeqno = v->getRevSeqno();
                 lh.unlock();
                 e->queueDirty(vb, vk.second, queue_op_del, revSeqno, false);
@@ -498,7 +508,7 @@ StoredValue *EventuallyPersistentStore::fetchValidValue(RCPtr<VBucket> &vb,
     if (v && !v->isDeleted()) { // In the deleted case, we ignore expiration time.
         if (v->isExpired(ep_real_time())) {
             incExpirationStat(vb, false);
-            vb->ht.unlocked_softDelete(v, 0);
+            vb->ht.unlocked_softDelete(v, 0, false);
             if (queueExpired) {
                 queueDirty(vb, key, queue_op_del, v->getRevSeqno(), false, false);
             }
@@ -532,11 +542,20 @@ protocol_binary_response_status EventuallyPersistentStore::evictKey(const std::s
         if (force)  {
             v->markClean();
         }
-        if (v->isResident()) {
-            if (v->ejectValue(stats, vb->ht)) {
+
+        bool resident_for_eviction = false;
+        if (eviction_policy == VALUE_ONLY && v->isValueResident()) {
+            resident_for_eviction = true;
+        } else if (eviction_policy == METADATA_AND_VALUE &&
+                   (v->isMetaDataResident() || v->isValueResident())) {
+            resident_for_eviction = true;
+        }
+
+        if (resident_for_eviction) {
+            if (vb->ht.unlocked_ejectItem(v, eviction_policy)) {
                 *msg = "Ejected.";
             } else {
-                *msg = "Can't eject: Dirty or a small object.";
+                *msg = "Can't eject: Dirty object.";
                 rv = PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
             }
         } else {
@@ -569,8 +588,8 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::set(const Item &itm,
     }
 
     bool cas_op = (itm.getCas() != 0);
-
-    mutation_type_t mtype = vb->ht.set(itm, nru);
+    bool bg_meta_fetch = (vb->getState() == vbucket_state_active) ? true : false;
+    mutation_type_t mtype = vb->ht.set(itm, bg_meta_fetch, nru);
     ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
 
     switch (mtype) {
@@ -591,6 +610,10 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::set(const Item &itm,
         // Even if the item was dirty, push it into the vbucket's open checkpoint.
     case WAS_CLEAN:
         queueDirty(vb, itm.getKey(), queue_op_set, itm.getRevSeqno());
+        break;
+    case NEED_BG_META_FETCH:
+        bgFetch(itm.getKey(), vb->getId(), -1, cookie, true);
+        ret = ENGINE_EWOULDBLOCK;
         break;
     case INVALID_VBUCKET:
         ret = ENGINE_NOT_MY_VBUCKET;
@@ -618,11 +641,14 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::add(const Item &itm,
         return ENGINE_NOT_STORED;
     }
 
-    switch (vb->ht.add(itm)) {
+    switch (vb->ht.add(itm, eviction_policy)) {
     case ADD_NOMEM:
         return ENGINE_ENOMEM;
     case ADD_EXISTS:
         return ENGINE_NOT_STORED;
+    case ADD_NEED_META_FETCH:
+        bgFetch(itm.getKey(), vb->getId(), -1, cookie, true);
+        return ENGINE_EWOULDBLOCK;
     case ADD_SUCCESS:
     case ADD_UNDEL:
         queueDirty(vb, itm.getKey(), queue_op_set, itm.getRevSeqno());
@@ -644,9 +670,10 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::addTAPBackfillItem(const Item &itm,
     mutation_type_t mtype;
 
     if (meta) {
-        mtype = vb->ht.set(itm, 0, true, true, nru);
+        mtype = vb->ht.set(itm, 0, true, true,
+                           false /* bg_meta_fetch */, nru);
     } else {
-        mtype = vb->ht.set(itm, nru);
+        mtype = vb->ht.set(itm, false /* bg_meta_fetch */, nru);
     }
     ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
 
@@ -669,6 +696,9 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::addTAPBackfillItem(const Item &itm,
     case INVALID_VBUCKET:
         ret = ENGINE_NOT_MY_VBUCKET;
         break;
+    case NEED_BG_META_FETCH:
+        // SET on a non-active vbucket should not require a bg_metadata_fetch.
+        abort();
     }
 
     return ret;
@@ -1000,15 +1030,15 @@ void EventuallyPersistentStore::completeBGFetch(const std::string &key,
         StoredValue *v = fetchValidValue(vb, key, bucket_num, true);
         if (isMeta) {
             if (v && !v->isResident()) {
-                if (v->unlocked_restoreMeta(gcb.val.getValue(),
-                                            gcb.val.getStatus())) {
+                if (vb->ht.unlocked_restoreItemMeta(v, gcb.val.getValue(),
+                                                    gcb.val.getStatus())) {
                     status = ENGINE_SUCCESS;
                 }
             }
         } else {
-            if (v && !v->isResident()) {
+            if (v && !v->isResident() && !v->isDeleted()) {
                 if (gcb.val.getStatus() == ENGINE_SUCCESS) {
-                    v->unlocked_restoreValue(gcb.val.getValue(), vb->ht);
+                    vb->ht.unlocked_restoreItem(v, gcb.val.getValue());
                     assert(v->isResident());
                     if (v->getExptime() != gcb.val.getValue()->getExptime()) {
                         assert(v->isDirty());
@@ -1066,14 +1096,14 @@ void EventuallyPersistentStore::completeBGFetchMulti(uint16_t vbId,
             StoredValue *v = fetchValidValue(vb, key, bucket, true);
             if (bgitem->metaDataOnly) {
                 if (v && !v->isResident()) {
-                    if (v->unlocked_restoreMeta(fetchedValue, status)) {
+                    if (vb->ht.unlocked_restoreItemMeta(v, fetchedValue, status)) {
                         status = ENGINE_SUCCESS;
                     }
                 }
             } else {
-                if (v && !v->isResident()) {
+                if (v && !v->isResident() && !v->isDeleted()) {
                     if (status == ENGINE_SUCCESS) {
-                        v->unlocked_restoreValue(fetchedValue, vb->ht);
+                        vb->ht.unlocked_restoreItem(v, fetchedValue);
                         assert(v->isResident());
                         if (v->getExptime() != fetchedValue->getExptime()) {
                             assert(v->isDirty());
@@ -1219,6 +1249,10 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::getMetaData(const std::string &key,
             metadata.cas = v->getCas();
             return ENGINE_KEY_ENOENT;
         } else {
+            if (!v->isMetaDataResident()) {
+                bgFetch(key, vbucket, -1, cookie, true);
+                return ENGINE_EWOULDBLOCK;
+            }
             if (v->isDeleted() || v->isExpired(ep_real_time())) {
                 deleted |= GET_META_ITEM_DELETED_FLAG;
             }
@@ -1235,13 +1269,17 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::getMetaData(const std::string &key,
         // persistent store. The item's state will be updated after the fetch
         // completes and the item will automatically expire after a pre-
         // determined amount of time.
-        add_type_t rv = vb->ht.unlocked_addTempDeletedItem(bucket_num, key);
+        add_type_t rv = vb->ht.unlocked_addTempDeletedItem(bucket_num, key,
+                                                           eviction_policy);
         switch(rv) {
         case ADD_NOMEM:
             return ENGINE_ENOMEM;
         case ADD_EXISTS:
         case ADD_UNDEL:
             // Since the hashtable bucket is locked, we should never get here
+            abort();
+        case ADD_NEED_META_FETCH:
+            // Adding a temp item should not require a bg_metadata_fetch.
             abort();
         case ADD_SUCCESS:
             bgFetch(key, vbucket, -1, cookie, true);
@@ -1276,19 +1314,27 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::setWithMeta(const Item &itm,
 
     if (!force) {
         if (v)  {
+            if (!v->isMetaDataResident()) {
+                bgFetch(itm.getKey(), itm.getVBucketId(), -1, cookie, true);
+                return ENGINE_EWOULDBLOCK;
+            }
             if (!conflictResolver->resolve(v, itm.getMetaData(), false)) {
                 ++stats.numOpsSetMetaResolutionFailed;
                 return ENGINE_KEY_EEXISTS;
             }
         } else {
             add_type_t rv = vb->ht.unlocked_addTempDeletedItem(bucket_num,
-                                                               itm.getKey());
+                                                               itm.getKey(),
+                                                               eviction_policy);
             switch(rv) {
             case ADD_NOMEM:
                 return ENGINE_ENOMEM;
             case ADD_EXISTS:
             case ADD_UNDEL:
                 // Since the hashtable bucket is locked, we shouldn't get here
+                abort();
+            case ADD_NEED_META_FETCH:
+                // Adding a temp item should not require a bg_metadata_fetch.
                 abort();
             case ADD_SUCCESS:
                 bgFetch(itm.getKey(), itm.getVBucketId(), -1, cookie, true);
@@ -1297,8 +1343,10 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::setWithMeta(const Item &itm,
         }
     }
 
+    // As we schedule a bg_metadata_fetch for a non-resident item above,
+    // we can safely assume that bg_meta_fetch is not required for SET here.
     mutation_type_t mtype = vb->ht.unlocked_set(v, itm, cas, allowExisting,
-                                                true, nru);
+                                                true, false, nru);
     lh.unlock();
     ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
 
@@ -1320,6 +1368,10 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::setWithMeta(const Item &itm,
     case NOT_FOUND:
         ret = ENGINE_KEY_ENOENT;
         break;
+    case NEED_BG_META_FETCH:
+        // It should not require a bg_metadata_fetch because the metadata
+        // is already fetched above.
+        abort();
     }
 
     return ret;
@@ -1328,7 +1380,6 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::setWithMeta(const Item &itm,
 GetValue EventuallyPersistentStore::getAndUpdateTtl(const std::string &key,
                                                     uint16_t vbucket,
                                                     const void *cookie,
-                                                    bool queueBG,
                                                     time_t exptime)
 {
     RCPtr<VBucket> vb = getVBucket(vbucket);
@@ -1352,6 +1403,10 @@ GetValue EventuallyPersistentStore::getAndUpdateTtl(const std::string &key,
     StoredValue *v = fetchValidValue(vb, key, bucket_num);
 
     if (v) {
+        if (!v->isResident()) {
+            bgFetch(key, vbucket, v->getBySeqno(), cookie);
+            return GetValue(NULL, ENGINE_EWOULDBLOCK, v->getBySeqno());
+        }
         if (v->isLocked(ep_current_time())) {
             GetValue rv(NULL, ENGINE_KEY_EEXISTS, 0);
             return rv;
@@ -1359,30 +1414,18 @@ GetValue EventuallyPersistentStore::getAndUpdateTtl(const std::string &key,
         bool exptime_mutated = exptime != v->getExptime() ? true : false;
         if (exptime_mutated) {
            v->markDirty();
+           v->setExptime(exptime);
         }
-        v->setExptime(exptime);
 
         GetValue rv(v->toItem(v->isLocked(ep_current_time()), vbucket),
                     ENGINE_SUCCESS, v->getBySeqno());
 
-        if (v->isResident()) {
-            if (exptime_mutated) {
-                // persist the itme in the underlying storage for
-                // mutated exptime
-                uint64_t revSeqno = v->getRevSeqno();
-                lh.unlock();
-                queueDirty(vb, key, queue_op_set, revSeqno);
-            }
-        } else {
-            if (queueBG || exptime_mutated) {
-                // in case exptime_mutated, first do bgFetch then
-                // persist mutated exptime in the underlying storage
-                bgFetch(key, vbucket, v->getBySeqno(), cookie);
-                return GetValue(NULL, ENGINE_EWOULDBLOCK, v->getBySeqno());
-            } else {
-                // You didn't want the item anyway...
-                return GetValue(NULL, ENGINE_SUCCESS, v->getBySeqno());
-            }
+        if (exptime_mutated) {
+            // persist the itme in the underlying storage for
+            // mutated exptime
+            uint64_t revSeqno = v->getRevSeqno();
+            lh.unlock();
+            queueDirty(vb, key, queue_op_set, revSeqno);
         }
 
         return rv;
@@ -1550,7 +1593,9 @@ EventuallyPersistentStore::unlockKey(const std::string &key,
 
 ENGINE_ERROR_CODE EventuallyPersistentStore::getKeyStats(const std::string &key,
                                             uint16_t vbucket,
+                                            const void *cookie,
                                             struct key_stats &kstats,
+                                            bool bgfetch,
                                             bool wantsDeleted)
 {
     RCPtr<VBucket> vb = getVBucket(vbucket);
@@ -1563,6 +1608,10 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::getKeyStats(const std::string &key,
     StoredValue *v = fetchValidValue(vb, key, bucket_num, wantsDeleted);
 
     if (v) {
+        if (!v->isMetaDataResident() && bgfetch) {
+            bgFetch(key, vbucket, -1, cookie, true);
+            return ENGINE_EWOULDBLOCK;
+        }
         kstats.logically_deleted = v->isDeleted();
         kstats.dirty = v->isDirty();
         kstats.exptime = v->getExptime();
@@ -1584,7 +1633,7 @@ std::string EventuallyPersistentStore::validateKey(const std::string &key,
                                      false, true);
 
     if (v) {
-        if (diskItem.getFlags() != v->getFlags()) {
+        if (v->isMetaDataResident() && diskItem.getFlags() != v->getFlags()) {
             return "flags_mismatch";
         } else if (v->isResident() && memcmp(diskItem.getData(),
                                              v->getValue()->getData(),
@@ -1635,12 +1684,17 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::deleteItem(const std::string &key,
     StoredValue *v = vb->ht.unlocked_find(key, bucket_num, use_meta, false);
     if (use_meta && !force) {
         if (v)  {
+            if (!v->isMetaDataResident()) {
+                bgFetch(key, vbucket, -1, cookie, true);
+                return ENGINE_EWOULDBLOCK;
+            }
             if (!conflictResolver->resolve(v, *itemMeta, true)) {
                 ++stats.numOpsDelMetaResolutionFailed;
                 return ENGINE_KEY_EEXISTS;
             }
         } else{
-            add_type_t rv = vb->ht.unlocked_addTempDeletedItem(bucket_num, key);
+            add_type_t rv = vb->ht.unlocked_addTempDeletedItem(bucket_num, key,
+                                                               eviction_policy);
             switch(rv) {
             case ADD_NOMEM:
                 return ENGINE_ENOMEM;
@@ -1648,12 +1702,22 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::deleteItem(const std::string &key,
             case ADD_UNDEL:
                 // Since the hashtable bucket is locked, we shouldn't get here
                 abort();
+            case ADD_NEED_META_FETCH:
+                // Adding a temp item should not require a bg_metadata_fetch.
+                abort();
             case ADD_SUCCESS:
                 bgFetch(key, vbucket, -1, cookie, true);
             }
             return ENGINE_EWOULDBLOCK;
         }
-    } else if (!v) {
+    } else if (!use_meta && !force) {
+        if (v && !v->isMetaDataResident()) {
+            bgFetch(key, vbucket, -1, cookie, true);
+            return ENGINE_EWOULDBLOCK;
+        }
+    }
+
+    if (!v) {
         if (vb->getState() != vbucket_state_active && force) {
             lh.unlock();
             queueDirty(vb, key, queue_op_del, newSeqno, tapBackfill);
@@ -1662,11 +1726,16 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::deleteItem(const std::string &key,
     }
 
     mutation_type_t delrv;
+    // As we schedule a bg_metadata_fetch for a non-resident item above,
+    // we can safely assume that bg_meta_fetch is not required for DEL here.
     if (use_meta) {
-        delrv = vb->ht.unlocked_softDelete(v, *cas, newSeqno, use_meta, newCas,
+        delrv = vb->ht.unlocked_softDelete(v, *cas, use_meta,
+                                           false /* not require bg_meta_fetch */,
+                                           newSeqno, newCas,
                                            newFlags, newExptime);
     } else {
-        delrv = vb->ht.unlocked_softDelete(v, *cas);
+        delrv = vb->ht.unlocked_softDelete(v, *cas,
+                                           false /* not require bg_meta_fetch */);
     }
 
     if (update_meta) {

@@ -43,73 +43,214 @@ static ssize_t prime_size_table[] = {
     1610612741, -1
 };
 
-bool StoredValue::ejectValue(EPStats &stats, HashTable &ht) {
-    if (eligibleForEviction()) {
-        reduceCacheSize(ht, value->length());
-        markNotResident();
-        value = NULL;
-
-        ++stats.numValueEjects;
-        ++ht.numNonResidentItems;
-        ++ht.numEjects;
-        return true;
-    }
-    ++stats.numFailedEjects;
-    return false;
-}
-
 void StoredValue::referenced() {
-    if (nru > MIN_NRU_VALUE) {
-        --nru;
+    if (_nru > MIN_NRU_VALUE) {
+        --_nru;
     }
 }
 
 void StoredValue::setNRUValue(uint8_t nru_val) {
     if (nru_val <= MAX_NRU_VALUE) {
-        nru = nru_val;
+        _nru = nru_val;
     }
 }
 
 uint8_t StoredValue::incrNRUValue() {
     uint8_t ret = MAX_NRU_VALUE;
-    if (nru < MAX_NRU_VALUE) {
-        ret = ++nru;
+    if (_nru < MAX_NRU_VALUE) {
+        ret = ++_nru;
     }
     return ret;
 }
 
 uint8_t StoredValue::getNRUValue() {
-    return nru;
+    return _nru;
 }
 
-bool StoredValue::unlocked_restoreValue(Item *itm, HashTable &ht) {
-    // If cas == we loaded the object from our meta file, but
-    // we didn't know the size of the object.. Don't report
-    // this as an unexpected size change.
-    if (getCas() == 0) {
-        cas = itm->getCas();
-        flags = itm->getFlags();
-        exptime = itm->getExptime();
-        revSeqno = itm->getRevSeqno();
-        setValue(*itm, ht, true);
-        if (!isResident()) {
-            --ht.numNonResidentItems;
+bool HashTable::unlocked_ejectItem(StoredValue*& vptr,
+                                   item_eviction_policy_t policy) {
+    assert(vptr);
+
+    bool canEvict = vptr->eligibleForEviction(policy);
+    if (canEvict && policy == VALUE_ONLY) {
+        StoredValue::reduceCacheSize(*this, vptr->valuelen());
+        vptr->resetValue(false);
+        ++stats.numValueEjects;
+        ++numNonResidentItems;
+        ++numEjects;
+        return true;
+    } else if (canEvict && policy == METADATA_AND_VALUE) {
+        // Note that even if an item is partially resident (i.e., only metadata is resident),
+        // we evict the metadata from memory.
+        StoredValue::reduceMetaDataSize(*this, stats, vptr->metaDataSize());
+        StoredValue::reduceCacheSize(*this, vptr->size());
+
+        StoredValue *new_ptr = NULL;
+        int bucket_num = getBucketForHash(hash(vptr->getKey()));
+        StoredValue *curr_ptr = values[bucket_num];
+        if (curr_ptr == vptr) {
+            StoredValue *tmp_ptr = NULL;
+            std::memcpy(&tmp_ptr, vptr->bdata, sizeof(StoredValue *));
+            // Replace a resident item with a non-resident item.
+            new_ptr = valFact(vptr->getKey(), tmp_ptr, *this);
+            values[bucket_num] = new_ptr;
+        } else {
+            StoredValue *next_ptr = NULL;
+            std::memcpy(&next_ptr, curr_ptr->bdata, sizeof(StoredValue *));
+            while (next_ptr) {
+                if (next_ptr == vptr) {
+                    StoredValue *tmp_ptr = NULL;
+                    std::memcpy(&tmp_ptr, vptr->bdata, sizeof(StoredValue *));
+                    // Replace a resident item with a non-resident item.
+                    new_ptr = valFact(vptr->getKey(), tmp_ptr, *this);
+                    std::memcpy(curr_ptr->bdata, &new_ptr, sizeof(StoredValue *));
+                    break;
+                } else {
+                    curr_ptr = next_ptr;
+                    std::memcpy(&next_ptr, next_ptr->bdata, sizeof(StoredValue *));
+                }
+            }
         }
-        markClean();
-        return true;
-    }
+        assert(new_ptr);
 
-    if (!isResident()) {
-        deleted = false;
-        value = itm->getValue();
-        increaseCacheSize(ht, value->length());
-        --ht.numNonResidentItems;
+        if (vptr->isResident()) { // both metadata and value are resident.
+            ++numNonResidentItems;
+        }
+        if (vptr->isValueResident()) {
+            ++stats.numValueEjects;
+        }
+        delete vptr; // Free the old item.
+        ++numEjects;
+
+        vptr = new_ptr;
         return true;
+    } else {
+        ++stats.numFailedEjects;
+        return false;
     }
-    return false;
 }
 
-mutation_type_t HashTable::insert(Item &itm, bool eject, bool partial) {
+bool HashTable::unlocked_restoreItem(StoredValue*& vptr, Item *itm) {
+    assert(vptr);
+
+    if (vptr->isResident() || vptr->isDeleted()) {
+        return false;
+    } else  if (vptr->isMetaDataResident()) {
+        uint64_t cas = vptr->getCas();
+        if (cas > 0 && cas != itm->getCas()) {
+            return false;
+        }
+    }
+
+    StoredValue::reduceMetaDataSize(*this, stats, vptr->metaDataSize());
+    StoredValue::reduceCacheSize(*this, vptr->size());
+
+    StoredValue *new_ptr = NULL;
+    int bucket_num = getBucketForHash(hash(vptr->getKey()));
+    StoredValue *curr_ptr = values[bucket_num];
+    if (curr_ptr == vptr) {
+        StoredValue *tmp_ptr = NULL;
+        std::memcpy(&tmp_ptr, vptr->bdata, sizeof(StoredValue *));
+        // Replace a non-resident item with a resident item.
+        new_ptr = valFact(*itm, tmp_ptr, *this, true, false);
+        values[bucket_num] = new_ptr;
+    } else {
+        StoredValue *next_ptr = NULL;
+        std::memcpy(&next_ptr, curr_ptr->bdata, sizeof(StoredValue *));
+        while (next_ptr) {
+            if (next_ptr == vptr) {
+                StoredValue *tmp_ptr = NULL;
+                std::memcpy(&tmp_ptr, vptr->bdata, sizeof(StoredValue *));
+                // Replace a non-resident item with a resident item.
+                new_ptr = valFact(*itm, tmp_ptr, *this, true, false);
+                std::memcpy(curr_ptr->bdata, &new_ptr, sizeof(StoredValue *));
+                break;
+            } else {
+                curr_ptr = next_ptr;
+                std::memcpy(&next_ptr, next_ptr->bdata, sizeof(StoredValue *));
+            }
+        }
+    }
+    assert(new_ptr);
+    --numNonResidentItems;
+    delete vptr; // Free the non-resident item.
+    vptr = new_ptr;
+    return true;
+}
+
+bool HashTable::unlocked_restoreItemMeta(StoredValue*& vptr, const Item *itm,
+                                         ENGINE_ERROR_CODE status) {
+    assert(vptr);
+
+    if (vptr->isMetaDataResident()) {
+        if (!vptr->isTempItem()) {
+            return true; // An regular item's metadata is already restored.
+        } else if (!vptr->isTempInitialItem()) {
+            return true;
+        }
+    }
+
+    switch(status) {
+    case ENGINE_SUCCESS:
+        {
+            if (vptr->isTempInitialItem()) {
+                vptr->setCas(itm->getCas());
+                vptr->setRevSeqno(itm->getRevSeqno());
+                vptr->setBySeqno(itm->getBySeqno());
+                vptr->setExptime(itm->getExptime());
+                vptr->setFlags(itm->getFlags());
+                vptr->setStoredValueState(StoredValue::state_deleted_key);
+                return true;
+            }
+
+            StoredValue::reduceMetaDataSize(*this, stats, vptr->metaDataSize());
+            StoredValue::reduceCacheSize(*this, vptr->size());
+
+            StoredValue *new_ptr = NULL;
+            int bucket_num = getBucketForHash(hash(vptr->getKey()));
+            StoredValue *curr_ptr = values[bucket_num];
+            if (curr_ptr == vptr) {
+                StoredValue *tmp_ptr = NULL;
+                std::memcpy(&tmp_ptr, vptr->bdata, sizeof(StoredValue *));
+                // Replace a non-resident item with a non-resident item whose
+                // meta data is only resident.
+                new_ptr = valFact(*itm, tmp_ptr, *this, false, false);
+                values[bucket_num] = new_ptr;
+            } else {
+                StoredValue *next_ptr = NULL;
+                std::memcpy(&next_ptr, curr_ptr->bdata, sizeof(StoredValue *));
+                while (next_ptr) {
+                    if (next_ptr == vptr) {
+                        StoredValue *tmp_ptr = NULL;
+                        std::memcpy(&tmp_ptr, vptr->bdata, sizeof(StoredValue *));
+                        // Replace a non-resident item with a non-resident item
+                        // whose meta data is only resident.
+                        new_ptr = valFact(*itm, tmp_ptr, *this, false, false);
+                        std::memcpy(curr_ptr->bdata, &new_ptr, sizeof(StoredValue *));
+                        break;
+                    } else {
+                        curr_ptr = next_ptr;
+                        std::memcpy(&next_ptr, next_ptr->bdata, sizeof(StoredValue *));
+                    }
+                }
+            }
+            assert(new_ptr);
+            delete vptr; // Free the non-resident item.
+            vptr = new_ptr;
+            return true;
+        }
+    case ENGINE_KEY_ENOENT:
+        vptr->setStoredValueState(StoredValue::state_non_existent_key);
+        return true;
+    default:
+        LOG(EXTENSION_LOG_WARNING,
+            "The underlying storage returned error %d for get_meta\n", status);
+        return false;
+    }
+}
+
+mutation_type_t HashTable::insert(Item &itm, item_eviction_policy_t policy,
+                                  bool eject, bool partial) {
     assert(isActive());
     if (!StoredValue::hasAvailableSpace(stats, itm)) {
         return NOMEM;
@@ -128,10 +269,8 @@ mutation_type_t HashTable::insert(Item &itm, bool eject, bool partial) {
     StoredValue *v = unlocked_find(itm.getKey(), bucket_num, true, false);
 
     if (v == NULL) {
-        v = valFact(itm, values[bucket_num], *this);
-        v->markClean();
+        v = valFact(itm, values[bucket_num], *this, !partial, false);
         if (partial) {
-            v->markNotResident();
             ++numNonResidentItems;
         }
         values[bucket_num] = v;
@@ -145,10 +284,10 @@ mutation_type_t HashTable::insert(Item &itm, bool eject, bool partial) {
         // Verify that the CAS isn't changed
         if (v->getCas() != itm.getCas()) {
             if (v->getCas() == 0) {
-                v->cas = itm.getCas();
-                v->flags = itm.getFlags();
-                v->exptime = itm.getExptime();
-                v->revSeqno = itm.getRevSeqno();
+                v->setCas(itm.getCas());
+                v->setFlags(itm.getFlags());
+                v->setExptime(itm.getExptime());
+                v->setRevSeqno(itm.getRevSeqno());
             } else {
                 return INVALID_CAS;
             }
@@ -162,35 +301,11 @@ mutation_type_t HashTable::insert(Item &itm, bool eject, bool partial) {
     v->markClean();
 
     if (eject && !partial) {
-        v->ejectValue(stats, *this);
+        unlocked_ejectItem(v, policy);
     }
 
     return NOT_FOUND;
 
-}
-
-bool StoredValue::unlocked_restoreMeta(Item *itm, ENGINE_ERROR_CODE status) {
-    if (state_temp_init != getBySeqno()) {
-        return true;
-    }
-
-    switch(status) {
-    case ENGINE_SUCCESS:
-        assert(0 == itm->getValue()->length());
-        setRevSeqno(itm->getRevSeqno());
-        setCas(itm->getCas());
-        flags = itm->getFlags();
-        setExptime(itm->getExptime());
-        setStoredValueState(state_deleted_key);
-        return true;
-    case ENGINE_KEY_ENOENT:
-        setStoredValueState(state_non_existent_key);
-        return true;
-    default:
-        LOG(EXTENSION_LOG_WARNING,
-            "The underlying storage returned error %d for get_meta\n", status);
-        return false;
-    }
 }
 
 static inline size_t getDefault(size_t x, size_t d) {
@@ -238,7 +353,7 @@ HashTableStatVisitor HashTable::clear(bool deactivate) {
         while (values[i]) {
             StoredValue *v = values[i];
             rv.visit(v);
-            values[i] = v->next;
+            std::memcpy(&values[i], v->bdata, sizeof(StoredValue *));
             delete v;
         }
     }
@@ -298,10 +413,10 @@ void HashTable::resize(size_t newSize) {
     for (size_t i = 0; i < oldSize; i++) {
         while (values[i]) {
             StoredValue *v = values[i];
-            values[i] = v->next;
+            std::memcpy(&values[i], v->bdata, sizeof(StoredValue *));
 
             int newBucket = getBucketForHash(hash(v->getKeyBytes(), v->getKeyLen()));
-            v->next = newValues[newBucket];
+            std::memcpy(v->bdata, &newValues[newBucket], sizeof(StoredValue *));
             newValues[newBucket] = v;
         }
     }
@@ -372,7 +487,7 @@ void HashTable::visit(HashTableVisitor &visitor) {
                                                            v->getKeyLen())));
             while (v) {
                 visitor.visit(v);
-                v = v->next;
+                std::memcpy(&v, v->bdata, sizeof(StoredValue *));
             }
             ++visited;
         }
@@ -400,7 +515,7 @@ void HashTable::visitDepth(HashTableDepthVisitor &visitor) {
             while (p) {
                 depth++;
                 mem += p->size();
-                p = p->next;
+                std::memcpy(&p, p->bdata, sizeof(StoredValue *));
             }
             visitor.visit(i, depth, mem);
             ++visited;
@@ -412,10 +527,17 @@ void HashTable::visitDepth(HashTableDepthVisitor &visitor) {
 
 add_type_t HashTable::unlocked_add(int &bucket_num,
                                    const Item &val,
+                                   item_eviction_policy_t policy,
                                    bool isDirty,
                                    bool storeVal) {
     StoredValue *v = unlocked_find(val.getKey(), bucket_num,
                                    true, false);
+
+    if (v && !v->isMetaDataResident()) {
+        // Need a bg metadata fetch to check if an item is expired or not.
+        return ADD_NEED_META_FETCH;
+    }
+
     add_type_t rv = ADD_SUCCESS;
     if (v && !v->isDeleted() && !v->isExpired(ep_real_time())) {
         rv = ADD_EXISTS;
@@ -434,7 +556,7 @@ add_type_t HashTable::unlocked_add(int &bucket_num,
                 v->markClean();
             }
         } else {
-            v = valFact(itm, values[bucket_num], *this, isDirty);
+            v = valFact(itm, values[bucket_num], *this, true, isDirty);
             values[bucket_num] = v;
 
             if (v->isTempItem()) {
@@ -453,7 +575,7 @@ add_type_t HashTable::unlocked_add(int &bucket_num,
             itm.setRevSeqno(seqno);
         }
         if (!storeVal) {
-            v->ejectValue(stats, *this);
+            unlocked_ejectItem(v, policy);
         }
         if (v->isTempItem()) {
             v->resetValue();
@@ -465,7 +587,8 @@ add_type_t HashTable::unlocked_add(int &bucket_num,
 }
 
 add_type_t HashTable::unlocked_addTempDeletedItem(int &bucket_num,
-                                                  const std::string &key) {
+                                                  const std::string &key,
+                                                  item_eviction_policy_t policy) {
 
     assert(isActive());
     Item itm(key.c_str(), key.length(), (size_t)0, (uint32_t)0, (time_t)0,
@@ -475,7 +598,7 @@ add_type_t HashTable::unlocked_addTempDeletedItem(int &bucket_num,
     // the value cuz normally a new item added is considered resident which does
     // not apply for temp item.
 
-    return unlocked_add(bucket_num, itm,
+    return unlocked_add(bucket_num, itm, policy,
                         false,  // isDirty
                         true);   // storeVal
 }
@@ -518,15 +641,17 @@ void StoredValue::reduceMetaDataSize(HashTable &ht, EPStats &st, size_t by) {
  * Is there enough space for this thing?
  */
 bool StoredValue::hasAvailableSpace(EPStats &st, const Item &itm) {
-    double newSize = static_cast<double>(st.getTotalMemoryUsed() +
-                                         sizeof(StoredValue) + itm.getNKey());
+    // Minimum memory overhead for a non-resident item
+    size_t min_mem = sizeof(StoredValue) - sizeof(uint8_t) + sizeof(StoredValue *) +
+        sizeof(uint8_t) + itm.getNKey();
+    double newSize = static_cast<double>(st.getTotalMemoryUsed() + min_mem);
     double maxSize=  static_cast<double>(st.getMaxDataSize()) * mutation_mem_threshold;
     return newSize <= maxSize;
 }
 
 Item* StoredValue::toItem(bool lck, uint16_t vbucket) const {
     return new Item(getKey(), getFlags(), getExptime(),
-                    value,
+                    getValue(),
                     lck ? static_cast<uint64_t>(-1) : getCas(),
-                    bySeqno, vbucket, getRevSeqno());
+                    getBySeqno(), vbucket, getRevSeqno());
 }
