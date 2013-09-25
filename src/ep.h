@@ -437,7 +437,7 @@ public:
      *
      */
     void completeBGFetchMulti(uint16_t vbId,
-                              std::vector<VBucketBGFetchItem *> &fetchedItems,
+                              std::vector<bgfetched_item_t> &fetchedItems,
                               hrtime_t start);
 
     /**
