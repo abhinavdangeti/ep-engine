@@ -204,13 +204,10 @@ public:
                                  uint64_t* cas,
                                  uint16_t vbucket)
     {
-        ItemMetaData itemMeta;
         ENGINE_ERROR_CODE ret = epstore->deleteItem(key, cas,
                                                     vbucket, cookie,
                                                     false, // not force
-                                                    false, // not use metadata
-                                                    false,
-                                                    &itemMeta);
+                                                    NULL);
 
         if (ret == ENGINE_KEY_ENOENT || ret == ENGINE_NOT_MY_VBUCKET) {
             if (isDegradedMode()) {

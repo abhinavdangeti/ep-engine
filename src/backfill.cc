@@ -112,8 +112,8 @@ bool BackFillVisitor::visitBucket(RCPtr<VBucket> &vb) {
         engine->tapConnMap->SetCursorToOpenCheckpoint(name, vb->getId());
 
         VBucketVisitor::visitBucket(vb);
-        double num_items = static_cast<double>(vb->ht.getNumItems());
-        double num_non_resident = static_cast<double>(vb->ht.getNumNonResidentItems());
+        double num_items = static_cast<double>(vb->getNumItems());
+        double num_non_resident = static_cast<double>(vb->getNumNonResidentItems());
         size_t num_backfill_items = 0;
 
         if (num_items == 0) {
@@ -123,8 +123,10 @@ bool BackFillVisitor::visitBucket(RCPtr<VBucket> &vb) {
         double resident_threshold = engine->getTapConfig().getBackfillResidentThreshold();
         residentRatioBelowThreshold =
             ((num_items - num_non_resident) / num_items) < resident_threshold ? true : false;
-
-        if (efficientVBDump && residentRatioBelowThreshold) {
+        item_eviction_policy_t policy =
+            engine->getEpStore()->getItemEvictionPolicy();
+        if ((efficientVBDump && policy == VALUE_ONLY && residentRatioBelowThreshold) ||
+             policy == FULL_EVICTION) {
             // disk backfill for persisted items + memory backfill for resident items
             num_backfill_items = (vb->opsCreate - vb->opsDelete) +
                 static_cast<size_t>(num_items - num_non_resident);
@@ -147,13 +149,19 @@ bool BackFillVisitor::visitBucket(RCPtr<VBucket> &vb) {
 }
 
 void BackFillVisitor::visit(StoredValue *v) {
-    // If efficient VBdump is supported and an item is not resident,
-    // skip the item as it will be fetched by the disk backfill.
-    if (efficientVBDump && residentRatioBelowThreshold && !v->isResident()) {
-        return;
+    item_eviction_policy_t policy = engine->getEpStore()->getItemEvictionPolicy();
+    bool skip_item = false;
+
+    if ((efficientVBDump && policy == VALUE_ONLY && residentRatioBelowThreshold) ||
+        policy == FULL_EVICTION) {
+        // If an item is neither dirty nor resident,
+        // skip the item as it will be fetched by the disk backfill.
+        if (!v->isResident() || (v->isResident() && !v->isDirty())) {
+            skip_item = true;
+        }
     }
 
-    if (v->isTempItem()) {
+    if (skip_item || v->isTempItem()) {
         return;
     }
 

@@ -300,14 +300,27 @@ size_t VBucket::getCheckpointFlushTimeout() {
     return chkFlushTimeout;
 }
 
+size_t VBucket::getNumItems(void) {
+    size_t num_items_on_disk = shard->getNumItemsOnDisk(id);
+    size_t num_items_on_cache = ht.getNumItems();
+    return num_items_on_cache > num_items_on_disk ?
+        num_items_on_cache : num_items_on_disk;
+}
+
+size_t VBucket::getNumNonResidentItems(void) {
+    size_t num_items = getNumItems();
+    size_t num_res_items = ht.getNumItems() - ht.getNumNonResidentItems();
+    return num_items > num_res_items ? (num_items - num_res_items) : 0;
+}
+
 void VBucket::addStats(bool details, ADD_STAT add_stat, const void *c) {
     addStat(NULL, toString(state), add_stat, c);
     if (details) {
-        size_t numItems = ht.getNumItems();
-        size_t tempItems = ht.getNumTempItems();
+        size_t numItems = getNumItems();
+        size_t tempItems = getNumTempItems();
         addStat("num_items", numItems, add_stat, c);
         addStat("num_temp_items", tempItems, add_stat, c);
-        addStat("num_non_resident", ht.getNumNonResidentItems(), add_stat, c);
+        addStat("num_non_resident", getNumNonResidentItems(), add_stat, c);
         addStat("ht_memory", ht.memorySize(), add_stat, c);
         addStat("ht_item_memory", ht.getItemMemory(), add_stat, c);
         addStat("ht_cache_size", ht.cacheSize, add_stat, c);

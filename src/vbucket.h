@@ -292,6 +292,14 @@ public:
 
     void addStats(bool details, ADD_STAT add_stat, const void *c);
 
+    size_t getNumItems(void);
+
+    size_t getNumNonResidentItems(void);
+
+    size_t getNumTempItems(void) {
+        return ht.getNumTempItems();
+    }
+
     static const vbucket_state_t ACTIVE;
     static const vbucket_state_t REPLICA;
     static const vbucket_state_t PENDING;
