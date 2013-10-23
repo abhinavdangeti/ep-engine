@@ -2148,9 +2148,9 @@ private:
 };
 
 void EventuallyPersistentStore::flushOneDeleteAll() {
-    // just pick one underlying is enough to
-    // reset entire underlying database store
-    vbMap.shards[EP_PRIMARY_SHARD]->getRWUnderlying()->reset();
+    for (size_t i = 0; i < vbMap.numShards; ++i) {
+        vbMap.shards[i]->getRWUnderlying()->reset();
+    }
     diskFlushAll.cas(true, false);
     stats.decrDiskQueueSize(1);
 }
