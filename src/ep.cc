@@ -2463,7 +2463,8 @@ void EventuallyPersistentStore::maybeEnableTraffic()
         LOG(EXTENSION_LOG_WARNING,
                 "Enough MB of data loaded to enable traffic");
         stats.warmupComplete.set(true);
-    } else if (stats.warmedUpValues >= (stats.warmedUpKeys * stats.warmupNumReadCap)) {
+    } else if (eviction_policy == VALUE_ONLY &&
+               stats.warmedUpValues >= (stats.warmedUpKeys * stats.warmupNumReadCap)) {
         // Let ep-engine think we're done with the warmup phase
         // (we should refactor this into "enableTraffic")
         LOG(EXTENSION_LOG_WARNING,
