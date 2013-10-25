@@ -20,7 +20,7 @@
 
 #include <assert.h>
 #include <memcached/util.h>
-#include <platform/platform.h>
+//#include <platform/platform.h>
 #include <stdlib.h>
 #include <string.h>
 

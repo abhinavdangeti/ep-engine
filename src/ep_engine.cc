@@ -22,7 +22,7 @@
 #include <memcached/engine.h>
 #include <memcached/protocol_binary.h>
 #include <memcached/util.h>
-#include <platform/platform.h>
+//#include <platform/platform.h>
 #include <stdarg.h>
 
 #include <cstdio>
