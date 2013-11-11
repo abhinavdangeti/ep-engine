@@ -26,12 +26,15 @@
 class ItemAccessVisitor : public VBucketVisitor {
 public:
     ItemAccessVisitor(EventuallyPersistentStore &_store, EPStats &_stats,
-                      bool *sfin) :
-        store(_store), stats(_stats), startTime(ep_real_time()),
-        stateFinalizer(sfin)
+                      AccessScanner *aS, uint16_t sh, bool *sfin) :
+        store(_store), stats(_stats), as(aS), startTime(ep_real_time()),
+        shardID(sh), stateFinalizer(sfin)
     {
         Configuration &conf = store.getEPEngine().getConfiguration();
         name = conf.getAlogPath();
+        std::stringstream s;
+        s << shardID;
+        name = name + "." + s.str();
         prev = name + ".old";
         next = name + ".next";
 
@@ -68,7 +71,9 @@ public:
 
     virtual void complete() {
         if (stateFinalizer) {
-            *stateFinalizer = true;
+            if (++(as->completedCount) == store.getVBuckets().getNumShards()) {
+                *stateFinalizer = true;
+            }
         }
 
         if (log != NULL) {
@@ -111,20 +116,25 @@ private:
     std::string prev;
     std::string next;
     std::string name;
+    uint16_t shardID;
 
     MutationLog *log;
     bool *stateFinalizer;
+    AccessScanner *as;
 };
 
 bool AccessScanner::run() {
     if (available) {
         available = false;
-        shared_ptr<ItemAccessVisitor> pv(new ItemAccessVisitor(store, stats, &available));
         store.resetAccessScannerTasktime();
-        shared_ptr<VBucketVisitor> vbv(pv);
-        ExTask task = new VBucketVisitorTask(&store, vbv, "Item Access Scanner",
-                                             sleepTime, true, true);
-        IOManager::get()->scheduleTask(task, AUXIO_TASK_IDX);
+        for (size_t i = 0; i < store.getVBuckets().getNumShards(); i++) {
+            shared_ptr<ItemAccessVisitor> pv(new ItemAccessVisitor(store, stats, this, i,
+                                                                   &available));
+            shared_ptr<VBucketVisitor> vbv(pv);
+            ExTask task = new VBucketVisitorTask(&store, vbv, i, "Item Access Scanner",
+                                                 sleepTime, true, true);
+            IOManager::get()->scheduleTask(task, AUXIO_TASK_IDX);
+        }
     }
     snooze(sleepTime, false);
     stats.alogTime.set(waketime.tv_sec);
