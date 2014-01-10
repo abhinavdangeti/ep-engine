@@ -236,7 +236,7 @@ static enum test_result test_getl(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     uint64_t result = 0;
 
     check(h1->arithmetic(h, NULL, key, 2, true, false, 1, 1, 0,
-                         &cas, &result,
+                         &cas, PROTOCOL_BINARY_RAW_BYTES, &result,
                          0)  == ENGINE_TMPFAIL, "Incr failed");
 
 
@@ -280,8 +280,8 @@ static enum test_result test_getl(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
 
     item *it = NULL;
 
-    check(h1->allocate(h, NULL, &it, ekey, strlen(ekey), strlen(edata), 0, 2)
-        == ENGINE_SUCCESS, "Allocation Failed");
+    check(h1->allocate(h, NULL, &it, ekey, strlen(ekey), strlen(edata), 0, 2,
+          PROTOCOL_BINARY_RAW_BYTES) == ENGINE_SUCCESS, "Allocation Failed");
 
     item_info info;
     info.nvalue = 1;
@@ -526,8 +526,8 @@ static enum test_result test_set_with_cas_non_existent(ENGINE_HANDLE *h,
     const char *key = "test_expiry_flush";
     item *i = NULL;
 
-    check(h1->allocate(h, NULL, &i, key, strlen(key), 10, 0, 0) == ENGINE_SUCCESS,
-          "Allocation failed.");
+    check(h1->allocate(h, NULL, &i, key, strlen(key), 10, 0, 0,
+          PROTOCOL_BINARY_RAW_BYTES) == ENGINE_SUCCESS, "Allocation failed.");
 
     Item *it = reinterpret_cast<Item*>(i);
     it->setCas(1234);
@@ -656,7 +656,7 @@ static enum test_result test_replace(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
 static enum test_result test_incr_miss(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     uint64_t cas = 0, result = 0;
     h1->arithmetic(h, NULL, "key", 3, true, false, 1, 0, 0,
-                   &cas, &result,
+                   &cas, PROTOCOL_BINARY_RAW_BYTES, &result,
                    0);
     check(ENGINE_KEY_ENOENT == verify_key(h, h1, "key"), "Expected to not find key");
     return SUCCESS;
@@ -665,19 +665,19 @@ static enum test_result test_incr_miss(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
 static enum test_result test_incr_default(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     uint64_t cas = 0, result = 0;
     check(h1->arithmetic(h, NULL, "key", 3, true, true, 1, 1, 0,
-                         &cas, &result,
+                         &cas, PROTOCOL_BINARY_RAW_BYTES, &result,
                          0) == ENGINE_SUCCESS,
           "Failed first arith");
     check(result == 1, "Failed result verification.");
 
     check(h1->arithmetic(h, NULL, "key", 3, true, false, 1, 1, 0,
-                         &cas, &result,
+                         &cas, PROTOCOL_BINARY_RAW_BYTES, &result,
                          0) == ENGINE_SUCCESS,
           "Failed second arith.");
     check(result == 2, "Failed second result verification.");
 
     check(h1->arithmetic(h, NULL, "key", 3, true, true, 1, 1, 0,
-                         &cas, &result,
+                         &cas, PROTOCOL_BINARY_RAW_BYTES, &result,
                          0) == ENGINE_SUCCESS,
           "Failed third arith.");
     check(result == 3, "Failed third result verification.");
@@ -794,7 +794,7 @@ static enum test_result test_incr(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     h1->release(h, NULL, i);
 
     check(h1->arithmetic(h, NULL, "key", 3, true, false, 1, 1, 0,
-                         &cas, &result,
+                         &cas, PROTOCOL_BINARY_RAW_BYTES, &result,
                          0) == ENGINE_SUCCESS,
           "Failed to incr value.");
 
@@ -810,7 +810,7 @@ static enum test_result test_bug2799(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     h1->release(h, NULL, i);
 
     check(h1->arithmetic(h, NULL, "key", 3, true, false, 1, 1, 0,
-                         &cas, &result,
+                         &cas, PROTOCOL_BINARY_RAW_BYTES, &result,
                          0) == ENGINE_SUCCESS,
           "Failed to incr value.");
 
@@ -1502,7 +1502,7 @@ static enum test_result test_wrong_vb_incr(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h
     uint64_t cas, result;
     int numNotMyVBucket = get_int_stat(h, h1, "ep_num_not_my_vbuckets");
     check(h1->arithmetic(h, NULL, "key", 3, true, false, 1, 1, 0,
-                         &cas, &result,
+                         &cas, PROTOCOL_BINARY_RAW_BYTES, &result,
                          1) == ENGINE_NOT_MY_VBUCKET,
           "Expected not my vbucket.");
     wait_for_stat_change(h, h1, "ep_num_not_my_vbuckets", numNotMyVBucket);
@@ -1515,7 +1515,7 @@ static enum test_result test_vb_incr_pending(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 
     uint64_t cas, result;
     check(set_vbucket_state(h, h1, 1, vbucket_state_pending), "Failed to set vbucket state.");
     check(h1->arithmetic(h, cookie, "key", 3, true, false, 1, 1, 0,
-                         &cas, &result,
+                         &cas, PROTOCOL_BINARY_RAW_BYTES, &result,
                          1) == ENGINE_EWOULDBLOCK,
           "Expected woodblock.");
     testHarness.destroy_cookie(cookie);
@@ -1527,7 +1527,7 @@ static enum test_result test_vb_incr_replica(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 
     check(set_vbucket_state(h, h1, 1, vbucket_state_replica), "Failed to set vbucket state.");
     int numNotMyVBucket = get_int_stat(h, h1, "ep_num_not_my_vbuckets");
     check(h1->arithmetic(h, NULL, "key", 3, true, false, 1, 1, 0,
-                         &cas, &result,
+                         &cas, PROTOCOL_BINARY_RAW_BYTES, &result,
                          1) == ENGINE_NOT_MY_VBUCKET,
           "Expected not my bucket.");
     wait_for_stat_change(h, h1, "ep_num_not_my_vbuckets", numNotMyVBucket);
@@ -1572,7 +1572,8 @@ static enum test_result test_expiry(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     item *it = NULL;
 
     ENGINE_ERROR_CODE rv;
-    rv = h1->allocate(h, NULL, &it, key, strlen(key), strlen(data), 0, 2);
+    rv = h1->allocate(h, NULL, &it, key, strlen(key), strlen(data), 0, 2,
+                      PROTOCOL_BINARY_RAW_BYTES);
     check(rv == ENGINE_SUCCESS, "Allocation failed.");
 
     item_info info;
@@ -1617,7 +1618,8 @@ static enum test_result test_expiry_loader(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h
     item *it = NULL;
 
     ENGINE_ERROR_CODE rv;
-    rv = h1->allocate(h, NULL, &it, key, strlen(key), strlen(data), 0, 2);
+    rv = h1->allocate(h, NULL, &it, key, strlen(key), strlen(data), 0, 2,
+                      PROTOCOL_BINARY_RAW_BYTES);
     check(rv == ENGINE_SUCCESS, "Allocation failed.");
 
     item_info info;
@@ -1658,7 +1660,8 @@ static enum test_result test_expiry_flush(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1
     // Expiry time set to 2 seconds from now
     // ep_engine has 3 seconds of expiry window which means that
     // an item expired in 3 seconds won't be persisted
-    rv = h1->allocate(h, NULL, &it, key, strlen(key), 10, 0, 2);
+    rv = h1->allocate(h, NULL, &it, key, strlen(key), 10, 0, 2,
+                      PROTOCOL_BINARY_RAW_BYTES);
     check(rv == ENGINE_SUCCESS, "Allocation failed.");
 
     int item_flush_expired = get_int_stat(h, h1, "ep_item_flush_expired");
@@ -1680,7 +1683,8 @@ static enum test_result test_bug3454(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     item *it = NULL;
 
     ENGINE_ERROR_CODE rv;
-    rv = h1->allocate(h, NULL, &it, key, strlen(key), strlen(data), 0, 5);
+    rv = h1->allocate(h, NULL, &it, key, strlen(key), strlen(data), 0, 5,
+                      PROTOCOL_BINARY_RAW_BYTES);
     check(rv == ENGINE_SUCCESS, "Allocation failed.");
 
     item_info info;
@@ -1702,7 +1706,8 @@ static enum test_result test_bug3454(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     check(h1->get(h, NULL, &it, key, strlen(key), 0) == ENGINE_KEY_ENOENT,
           "Item didn't expire");
 
-    rv = h1->allocate(h, NULL, &it, key, strlen(key), strlen(data), 0, 0);
+    rv = h1->allocate(h, NULL, &it, key, strlen(key), strlen(data), 0, 0,
+                      PROTOCOL_BINARY_RAW_BYTES);
     check(rv == ENGINE_SUCCESS, "Allocation failed.");
 
     info.nvalue = 1;
@@ -1741,7 +1746,8 @@ static enum test_result test_bug3522(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     item *it = NULL;
 
     ENGINE_ERROR_CODE rv;
-    rv = h1->allocate(h, NULL, &it, key, strlen(key), strlen(data), 0, 0);
+    rv = h1->allocate(h, NULL, &it, key, strlen(key), strlen(data), 0, 0,
+                      PROTOCOL_BINARY_RAW_BYTES);
     check(rv == ENGINE_SUCCESS, "Allocation failed.");
 
     item_info info;
@@ -1760,7 +1766,8 @@ static enum test_result test_bug3522(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
 
     // Add a new item with the same key and 2 sec of expiration.
     const char *new_data = "new data here.";
-    rv = h1->allocate(h, NULL, &it, key, strlen(key), strlen(new_data), 0, 2);
+    rv = h1->allocate(h, NULL, &it, key, strlen(key), strlen(new_data), 0, 2,
+                      PROTOCOL_BINARY_RAW_BYTES);
     check(rv == ENGINE_SUCCESS, "Allocation failed.");
 
     info.nvalue = 1;
@@ -2119,11 +2126,13 @@ static enum test_result test_alloc_limit(ENGINE_HANDLE *h,
     item *it = NULL;
     ENGINE_ERROR_CODE rv;
 
-    rv = h1->allocate(h, NULL, &it, "key", 3, 20 * 1024 * 1024, 0, 0);
+    rv = h1->allocate(h, NULL, &it, "key", 3, 20 * 1024 * 1024, 0, 0,
+                      PROTOCOL_BINARY_RAW_BYTES);
     check(rv == ENGINE_SUCCESS, "Allocated 20MB item");
     h1->release(h, NULL, it);
 
-    rv = h1->allocate(h, NULL, &it, "key", 3, (20 * 1024 * 1024) + 1, 0, 0);
+    rv = h1->allocate(h, NULL, &it, "key", 3, (20 * 1024 * 1024) + 1, 0, 0,
+                      PROTOCOL_BINARY_RAW_BYTES);
     check(rv == ENGINE_E2BIG, "Object too big");
 
     return SUCCESS;
@@ -2943,6 +2952,7 @@ static enum test_result test_tap_rcvr_mutate(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 
         memset(data, 'x', i);
         check(h1->tap_notify(h, NULL, eng_specific, sizeof(eng_specific),
                              1, 0, TAP_MUTATION, 1, "key", 3, 828, 0, 0,
+                             PROTOCOL_BINARY_RAW_BYTES,
                              data, i, 0) == ENGINE_SUCCESS,
               "Failed tap notify.");
         check_key_value(h, h1, "key", data, i);
@@ -2960,10 +2970,12 @@ static enum test_result test_tap_rcvr_checkpoint(ENGINE_HANDLE *h, ENGINE_HANDLE
         data = '0' + i;
         check(h1->tap_notify(h, NULL, eng_specific, sizeof(eng_specific),
                              1, 0, TAP_CHECKPOINT_START, 1, "", 0, 828, 0, 0,
+                             PROTOCOL_BINARY_RAW_BYTES,
                              &data, 1, 1) == ENGINE_SUCCESS,
               "Failed tap notify.");
         check(h1->tap_notify(h, NULL, eng_specific, sizeof(eng_specific),
                              1, 0, TAP_CHECKPOINT_END, 1, "", 0, 828, 0, 0,
+                             PROTOCOL_BINARY_RAW_BYTES,
                              &data, 1, 1) == ENGINE_SUCCESS,
               "Failed tap notify.");
     }
@@ -2974,6 +2986,7 @@ static enum test_result test_tap_rcvr_mutate_dead(ENGINE_HANDLE *h, ENGINE_HANDL
     char eng_specific[1];
     check(h1->tap_notify(h, NULL, eng_specific, 1,
                          1, 0, TAP_MUTATION, 1, "key", 3, 828, 0, 0,
+                         PROTOCOL_BINARY_RAW_BYTES,
                          "data", 4, 1) == ENGINE_NOT_MY_VBUCKET,
           "Expected not my vbucket.");
     return SUCCESS;
@@ -2984,6 +2997,7 @@ static enum test_result test_tap_rcvr_mutate_pending(ENGINE_HANDLE *h, ENGINE_HA
     char eng_specific[1];
     check(h1->tap_notify(h, NULL, eng_specific, 1,
                          1, 0, TAP_MUTATION, 1, "key", 3, 828, 0, 0,
+                         PROTOCOL_BINARY_RAW_BYTES,
                          "data", 4, 1) == ENGINE_SUCCESS,
           "Expected expected success.");
     return SUCCESS;
@@ -2994,6 +3008,7 @@ static enum test_result test_tap_rcvr_mutate_replica(ENGINE_HANDLE *h, ENGINE_HA
     char eng_specific[1];
     check(h1->tap_notify(h, NULL, eng_specific, 1,
                          1, 0, TAP_MUTATION, 1, "key", 3, 828, 0, 0,
+                         PROTOCOL_BINARY_RAW_BYTES,
                          "data", 4, 1) == ENGINE_SUCCESS,
           "Expected expected success.");
     return SUCCESS;
@@ -3002,6 +3017,7 @@ static enum test_result test_tap_rcvr_mutate_replica(ENGINE_HANDLE *h, ENGINE_HA
 static enum test_result test_tap_rcvr_delete(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     check(h1->tap_notify(h, NULL, NULL, 0,
                          1, 0, TAP_DELETION, 0, "key", 3, 0, 0, 0,
+                         PROTOCOL_BINARY_RAW_BYTES,
                          0, 0, 0) == ENGINE_SUCCESS,
           "Failed tap notify.");
     return SUCCESS;
@@ -3010,6 +3026,7 @@ static enum test_result test_tap_rcvr_delete(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 
 static enum test_result test_tap_rcvr_delete_dead(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     check(h1->tap_notify(h, NULL, NULL, 0,
                          1, 0, TAP_DELETION, 1, "key", 3, 0, 0, 0,
+                         PROTOCOL_BINARY_RAW_BYTES,
                          NULL, 0, 1) == ENGINE_NOT_MY_VBUCKET,
           "Expected not my vbucket.");
     return SUCCESS;
@@ -3019,6 +3036,7 @@ static enum test_result test_tap_rcvr_delete_pending(ENGINE_HANDLE *h, ENGINE_HA
     check(set_vbucket_state(h, h1, 1, vbucket_state_pending), "Failed to set vbucket state.");
     check(h1->tap_notify(h, NULL, NULL, 0,
                          1, 0, TAP_DELETION, 1, "key", 3, 0, 0, 0,
+                         PROTOCOL_BINARY_RAW_BYTES,
                          NULL, 0, 1) == ENGINE_SUCCESS,
           "Expected expected success.");
     return SUCCESS;
@@ -3028,6 +3046,7 @@ static enum test_result test_tap_rcvr_delete_replica(ENGINE_HANDLE *h, ENGINE_HA
     check(set_vbucket_state(h, h1, 1, vbucket_state_replica), "Failed to set vbucket state.");
     check(h1->tap_notify(h, NULL, NULL, 0,
                          1, 0, TAP_DELETION, 1, "key", 3, 0, 0, 0,
+                         PROTOCOL_BINARY_RAW_BYTES,
                          NULL, 0, 1) == ENGINE_SUCCESS,
           "Expected expected success.");
     return SUCCESS;
@@ -3726,7 +3745,8 @@ static enum test_result test_tap_ack_stream(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *
             h1->tap_notify(h, cookie, NULL, 0, 0,
                            PROTOCOL_BINARY_RESPONSE_SUCCESS,
                            TAP_ACK, seqno, NULL, 0,
-                           0, 0, 0, NULL, 0, 0);
+                           0, 0, 0, PROTOCOL_BINARY_RAW_BYTES,
+                           NULL, 0, 0);
             testHarness.lock_cookie(cookie);
             break;
         case TAP_NOOP:
@@ -3742,13 +3762,15 @@ static enum test_result test_tap_ack_stream(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *
                 h1->tap_notify(h, cookie, NULL, 0, 0,
                                PROTOCOL_BINARY_RESPONSE_ETMPFAIL,
                                TAP_ACK, seqno, key.c_str(), key.length(),
-                               0, 0, 0, NULL, 0, 0);
+                               0, 0, 0, PROTOCOL_BINARY_RAW_BYTES,
+                               NULL, 0, 0);
             } else {
                 receivedKeys[index] = true;
                 h1->tap_notify(h, cookie, NULL, 0, 0,
                                PROTOCOL_BINARY_RESPONSE_SUCCESS,
                                TAP_ACK, seqno, key.c_str(), key.length(),
-                               0, 0, 0, NULL, 0, 0);
+                               0, 0, 0, PROTOCOL_BINARY_RAW_BYTES,
+                               NULL, 0, 0);
             }
             testHarness.lock_cookie(cookie);
             h1->release(h, cookie, it);
@@ -3759,7 +3781,8 @@ static enum test_result test_tap_ack_stream(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *
             h1->tap_notify(h, cookie, NULL, 0, 0,
                            PROTOCOL_BINARY_RESPONSE_SUCCESS,
                            TAP_ACK, seqno, key.c_str(), key.length(),
-                           0, 0, 0, NULL, 0, 0);
+                           0, 0, 0, PROTOCOL_BINARY_RAW_BYTES,
+                           NULL, 0, 0);
             testHarness.lock_cookie(cookie);
             h1->release(h, cookie, it);
             break;
@@ -3768,7 +3791,8 @@ static enum test_result test_tap_ack_stream(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *
             h1->tap_notify(h, cookie, NULL, 0, 0,
                            PROTOCOL_BINARY_RESPONSE_SUCCESS,
                            TAP_ACK, seqno, key.c_str(), key.length(),
-                           0, 0, 0, NULL, 0, 0);
+                           0, 0, 0, PROTOCOL_BINARY_RAW_BYTES,
+                           NULL, 0, 0);
             testHarness.lock_cookie(cookie);
             h1->release(h, cookie, it);
             break;
@@ -3852,14 +3876,16 @@ static enum test_result test_tap_implicit_ack_stream(ENGINE_HANDLE *h, ENGINE_HA
                 h1->tap_notify(h, cookie, NULL, 0, 0,
                                PROTOCOL_BINARY_RESPONSE_SUCCESS,
                                TAP_ACK, seqno, NULL, 0,
-                               0, 0, 0, NULL, 0, 0);
+                               0, 0, 0, PROTOCOL_BINARY_RAW_BYTES,
+                               NULL, 0, 0);
                 testHarness.lock_cookie(cookie);
             } else if (flags == TAP_FLAG_ACK) {
                 testHarness.unlock_cookie(cookie);
                 h1->tap_notify(h, cookie, NULL, 0, 0,
                                PROTOCOL_BINARY_RESPONSE_SUCCESS,
                                TAP_ACK, seqno, NULL, 0,
-                               0, 0, 0, NULL, 0, 0);
+                               0, 0, 0, PROTOCOL_BINARY_RAW_BYTES,
+                               NULL, 0, 0);
                 testHarness.lock_cookie(cookie);
             }
         }
@@ -3881,14 +3907,16 @@ static enum test_result test_tap_implicit_ack_stream(ENGINE_HANDLE *h, ENGINE_HA
                 h1->tap_notify(h, cookie, NULL, 0, 0,
                                PROTOCOL_BINARY_RESPONSE_ETMPFAIL,
                                TAP_ACK, seqno, key.c_str(), key.length(),
-                               0, 0, 0, NULL, 0, 0);
+                               0, 0, 0, PROTOCOL_BINARY_RAW_BYTES,
+                               NULL, 0, 0);
                 testHarness.lock_cookie(cookie);
             } else if (flags == TAP_FLAG_ACK) {
                 testHarness.unlock_cookie(cookie);
                 h1->tap_notify(h, cookie, NULL, 0, 0,
                                PROTOCOL_BINARY_RESPONSE_SUCCESS,
                                TAP_ACK, seqno, NULL, 0,
-                               0, 0, 0, NULL, 0, 0);
+                               0, 0, 0, PROTOCOL_BINARY_RAW_BYTES,
+                               NULL, 0, 0);
                 testHarness.lock_cookie(cookie);
             }
         }
@@ -3913,7 +3941,8 @@ static enum test_result test_tap_implicit_ack_stream(ENGINE_HANDLE *h, ENGINE_HA
                 h1->tap_notify(h, cookie, NULL, 0, 0,
                                PROTOCOL_BINARY_RESPONSE_SUCCESS,
                                TAP_ACK, seqno, NULL, 0,
-                               0, 0, 0, NULL, 0, 0);
+                               0, 0, 0, PROTOCOL_BINARY_RAW_BYTES,
+                               NULL, 0, 0);
                 testHarness.lock_cookie(cookie);
             }
         }
@@ -3964,7 +3993,8 @@ static enum test_result test_tap_notify(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1)
         std::string key = ss.str();
 
         r = h1->tap_notify(h, cookie, NULL, 0, 1, 0, TAP_MUTATION, 0,
-                           key.c_str(), key.length(), 0, 0, 0, buffer, 1024, 0);
+                           key.c_str(), key.length(), 0, 0, 0,
+                           PROTOCOL_BINARY_RAW_BYTES, buffer, 1024, 0);
     } while (r == ENGINE_SUCCESS);
     check(r == ENGINE_TMPFAIL, "non-acking streams should etmpfail");
 
@@ -4098,7 +4128,7 @@ static enum test_result test_io_stats(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
           "Expected storing one value to not change the read counter");
 
     check(get_int_stat(h, h1, "ep_io_num_write") == 1 &&
-          get_int_stat(h, h1, "ep_io_write_bytes") == 4,
+          get_int_stat(h, h1, "ep_io_write_bytes") == 6,
           "Expected storing the key to update the write counter");
     evict_key(h, h1, "a", 0, "Ejected.");
 
@@ -4108,7 +4138,7 @@ static enum test_result test_io_stats(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
           get_int_stat(h, h1, "ep_io_read_bytes") == 4,
           "Expected reading the value back in to update the read counter");
     check(get_int_stat(h, h1, "ep_io_num_write") == 1 &&
-          get_int_stat(h, h1, "ep_io_write_bytes") == 4,
+          get_int_stat(h, h1, "ep_io_write_bytes") == 6,
           "Expected reading the value back in to not update the write counter");
 
     h1->reset_stats(h, NULL);
@@ -4327,6 +4357,30 @@ static enum test_result test_warmup_conf(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1)
           "Incorrect smaller warmup min items threshold.");
     check(get_int_stat(h, h1, "ep_warmup_min_memory_threshold") == 80,
           "Incorrect smaller warmup min memory threshold.");
+
+    return SUCCESS;
+}
+
+static enum test_result test_datatype(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+    item *itm = NULL;
+    char key[10] = "{foo:bar}";
+    uint8_t datatype = 0x01;
+    uint64_t cas = 0;
+
+    ENGINE_ERROR_CODE rv = h1->allocate(h, NULL, &itm, key,
+                                        strlen(key), 1, 0, 0,
+                                        datatype);
+    check(rv == ENGINE_SUCCESS, "Allocation failed.");
+    rv = h1->store(h, NULL, itm, &cas, OPERATION_SET, 0);
+    h1->release(h, NULL, itm);
+
+    check(h1->get(h, NULL, &itm, key, strlen(key), 0) == ENGINE_SUCCESS,
+            "Unable to get stored item");
+
+    item_info info;
+    info.nvalue = 1;
+    h1->get_item_info(h, NULL, itm, &info);
+    check(info.datatype == 0x01, "Invalid datatype");
 
     return SUCCESS;
 }
@@ -4845,7 +4899,7 @@ static enum test_result test_mb3169(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
           "Expected mutation to mark item resident");
 
     check(h1->arithmetic(h, NULL, "incr", 4, true, false, 1, 1, 0,
-                         &cas, &result,
+                         &cas, PROTOCOL_BINARY_RAW_BYTES, &result,
                          0)  == ENGINE_SUCCESS, "Incr failed");
 
     check(get_int_stat(h, h1, "ep_num_non_resident") == 2,
@@ -5019,7 +5073,7 @@ static enum test_result test_disk_gt_ram_incr(ENGINE_HANDLE *h,
     evict_key(h, h1, "k1");
 
     check(h1->arithmetic(h, NULL, "k1", 2, true, false, 1, 1, 0,
-                         &cas, &result,
+                         &cas, PROTOCOL_BINARY_RAW_BYTES, &result,
                          0) == ENGINE_SUCCESS,
           "Failed to incr value.");
 
@@ -5095,7 +5149,7 @@ extern "C" {
 
         uint64_t cas = 0, result = 0;
         check(td->h1->arithmetic(td->h, NULL, "k1", 2, true, false, 1, 1, 0,
-                                 &cas, &result,
+                                 &cas, PROTOCOL_BINARY_RAW_BYTES, &result,
                                  0) == ENGINE_SUCCESS,
               "Failed to incr value.");
 
@@ -6653,8 +6707,8 @@ static enum test_result test_observe_single_key(ENGINE_HANDLE *h, ENGINE_HANDLE_
     // Set an item
     item *it = NULL;
     uint64_t cas1;
-    check(h1->allocate(h, NULL, &it, "key", 3, 100, 0, 0)== ENGINE_SUCCESS,
-          "Allocation failed.");
+    check(h1->allocate(h, NULL, &it, "key", 3, 100, 0, 0,
+          PROTOCOL_BINARY_RAW_BYTES)== ENGINE_SUCCESS, "Allocation failed.");
     check(h1->store(h, NULL, it, &cas1, OPERATION_SET, 0)== ENGINE_SUCCESS,
           "Set should work.");
     h1->release(h, NULL, it);
@@ -6693,20 +6747,20 @@ static enum test_result test_observe_multi_key(ENGINE_HANDLE *h, ENGINE_HANDLE_V
     // Set some keys to observe
     item *it = NULL;
     uint64_t cas1, cas2, cas3;
-    check(h1->allocate(h, NULL, &it, "key1", 4, 100, 0, 0)== ENGINE_SUCCESS,
-          "Allocation failed.");
+    check(h1->allocate(h, NULL, &it, "key1", 4, 100, 0, 0,
+          PROTOCOL_BINARY_RAW_BYTES)== ENGINE_SUCCESS, "Allocation failed.");
     check(h1->store(h, NULL, it, &cas1, OPERATION_SET, 0)== ENGINE_SUCCESS,
           "Set should work.");
     h1->release(h, NULL, it);
 
-    check(h1->allocate(h, NULL, &it, "key2", 4, 100, 0, 0)== ENGINE_SUCCESS,
-          "Allocation failed.");
+    check(h1->allocate(h, NULL, &it, "key2", 4, 100, 0, 0,
+          PROTOCOL_BINARY_RAW_BYTES)== ENGINE_SUCCESS, "Allocation failed.");
     check(h1->store(h, NULL, it, &cas2, OPERATION_SET, 1)== ENGINE_SUCCESS,
           "Set should work.");
     h1->release(h, NULL, it);
 
-    check(h1->allocate(h, NULL, &it, "key3", 4, 100, 0, 0)== ENGINE_SUCCESS,
-          "Allocation failed.");
+    check(h1->allocate(h, NULL, &it, "key3", 4, 100, 0, 0,
+          PROTOCOL_BINARY_RAW_BYTES)== ENGINE_SUCCESS, "Allocation failed.");
     check(h1->store(h, NULL, it, &cas3, OPERATION_SET, 1)== ENGINE_SUCCESS,
           "Set should work.");
     h1->release(h, NULL, it);
@@ -6775,13 +6829,13 @@ static enum test_result test_multiple_observes(ENGINE_HANDLE *h, ENGINE_HANDLE_V
     // Set some keys
     item *it = NULL;
     uint64_t cas1, cas2;
-    check(h1->allocate(h, NULL, &it, "key1", 4, 100, 0, 0)== ENGINE_SUCCESS,
-          "Allocation failed.");
+    check(h1->allocate(h, NULL, &it, "key1", 4, 100, 0, 0,
+          PROTOCOL_BINARY_RAW_BYTES)== ENGINE_SUCCESS, "Allocation failed.");
     check(h1->store(h, NULL, it, &cas1, OPERATION_SET, 0)== ENGINE_SUCCESS,
           "Set should work.");
     h1->release(h, NULL, it);
-    check(h1->allocate(h, NULL, &it, "key2", 4, 100, 0, 0)== ENGINE_SUCCESS,
-          "Allocation failed.");
+    check(h1->allocate(h, NULL, &it, "key2", 4, 100, 0, 0,
+          PROTOCOL_BINARY_RAW_BYTES)== ENGINE_SUCCESS, "Allocation failed.");
     check(h1->store(h, NULL, it, &cas2, OPERATION_SET, 0)== ENGINE_SUCCESS,
           "Set should work.");
     h1->release(h, NULL, it);
@@ -6833,16 +6887,16 @@ static enum test_result test_observe_with_not_found(ENGINE_HANDLE *h, ENGINE_HAN
     // Set some keys
     item *it = NULL;
     uint64_t cas1, cas3;
-    check(h1->allocate(h, NULL, &it, "key1", 4, 100, 0, 0)== ENGINE_SUCCESS,
-          "Allocation failed.");
+    check(h1->allocate(h, NULL, &it, "key1", 4, 100, 0, 0,
+          PROTOCOL_BINARY_RAW_BYTES)== ENGINE_SUCCESS, "Allocation failed.");
     check(h1->store(h, NULL, it, &cas1, OPERATION_SET, 0)== ENGINE_SUCCESS,
           "Set should work.");
     h1->release(h, NULL, it);
     wait_for_stat_to_be(h, h1, "ep_total_persisted", 1);
     stop_persistence(h, h1);
 
-    check(h1->allocate(h, NULL, &it, "key3", 4, 100, 0, 0)== ENGINE_SUCCESS,
-          "Allocation failed.");
+    check(h1->allocate(h, NULL, &it, "key3", 4, 100, 0, 0,
+          PROTOCOL_BINARY_RAW_BYTES)== ENGINE_SUCCESS, "Allocation failed.");
     check(h1->store(h, NULL, it, &cas3, OPERATION_SET, 1)== ENGINE_SUCCESS,
           "Set should work.");
     h1->release(h, NULL, it);
@@ -7868,20 +7922,20 @@ static enum test_result test_observe_with_item_eviction(ENGINE_HANDLE *h,
     // Set some keys to observe
     item *it = NULL;
     uint64_t cas1, cas2, cas3;
-    check(h1->allocate(h, NULL, &it, "key1", 4, 100, 0, 0)== ENGINE_SUCCESS,
-          "Allocation failed.");
+    check(h1->allocate(h, NULL, &it, "key1", 4, 100, 0, 0,
+          PROTOCOL_BINARY_RAW_BYTES)== ENGINE_SUCCESS, "Allocation failed.");
     check(h1->store(h, NULL, it, &cas1, OPERATION_SET, 0)== ENGINE_SUCCESS,
           "Set should work.");
     h1->release(h, NULL, it);
 
-    check(h1->allocate(h, NULL, &it, "key2", 4, 100, 0, 0)== ENGINE_SUCCESS,
-          "Allocation failed.");
+    check(h1->allocate(h, NULL, &it, "key2", 4, 100, 0, 0,
+          PROTOCOL_BINARY_RAW_BYTES)== ENGINE_SUCCESS, "Allocation failed.");
     check(h1->store(h, NULL, it, &cas2, OPERATION_SET, 1)== ENGINE_SUCCESS,
           "Set should work.");
     h1->release(h, NULL, it);
 
-    check(h1->allocate(h, NULL, &it, "key3", 4, 100, 0, 0)== ENGINE_SUCCESS,
-          "Allocation failed.");
+    check(h1->allocate(h, NULL, &it, "key3", 4, 100, 0, 0,
+          PROTOCOL_BINARY_RAW_BYTES)== ENGINE_SUCCESS, "Allocation failed.");
     check(h1->store(h, NULL, it, &cas3, OPERATION_SET, 1)== ENGINE_SUCCESS,
           "Set should work.");
     h1->release(h, NULL, it);
@@ -8369,6 +8423,8 @@ engine_test_t* get_tests(void) {
         TestCase("test item pager", test_item_pager, test_setup,
                  teardown, "max_size=204800", prepare, cleanup),
         TestCase("warmup conf", test_warmup_conf, test_setup,
+                 teardown, NULL, prepare, cleanup),
+        TestCase("test datatype", test_datatype, test_setup,
                  teardown, NULL, prepare, cleanup),
 
         // Stats tests

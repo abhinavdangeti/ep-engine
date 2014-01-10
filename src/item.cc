@@ -26,11 +26,13 @@ const uint32_t Item::metaDataSize(2 * sizeof(uint32_t) + 2 * sizeof(uint64_t) + 
 bool Item::append(const Item &i) {
     assert(value.get() != NULL);
     assert(i.getValue().get() != NULL);
-    size_t newSize = value->length() + i.getValue()->length();
-    Blob *newData = Blob::New(newSize);
-    char *newValue = (char *) newData->getData();
-    std::memcpy(newValue, value->getData(), value->length());
-    std::memcpy(newValue + value->length(), i.getValue()->getData(), i.getValue()->length());
+    size_t newSize = value->length() + i.getValue()->length() -
+        value->getExtLen() - FLEX_DATA_OFFSET;
+    Blob *newData = Blob::New(newSize, value->getExtLen());
+    char *newValue = (char *) newData->getBlob();
+    std::memcpy(newValue, value->getBlob(), value->length());
+    std::memcpy(newValue + value->length(), i.getValue()->getData(),
+                i.getValue()->length() - value->getExtLen() - FLEX_DATA_OFFSET);
     value.reset(newData);
     return true;
 }
@@ -44,11 +46,13 @@ bool Item::append(const Item &i) {
 bool Item::prepend(const Item &i) {
     assert(value.get() != NULL);
     assert(i.getValue().get() != NULL);
-    size_t newSize = value->length() + i.getValue()->length();
-    Blob *newData = Blob::New(newSize);
-    char *newValue = (char *) newData->getData();
-    std::memcpy(newValue, i.getValue()->getData(), i.getValue()->length());
-    std::memcpy(newValue + i.getValue()->length(), value->getData(), value->length());
+    size_t newSize = value->length() + i.getValue()->length() -
+        value->getExtLen() - FLEX_DATA_OFFSET;
+    Blob *newData = Blob::New(newSize, value->getExtLen());
+    char *newValue = (char *) newData->getBlob();
+    std::memcpy(newValue, i.getValue()->getBlob(), i.getValue()->length());
+    std::memcpy(newValue + i.getValue()->length(), value->getData(),
+                value->length() - value->getExtLen() - FLEX_DATA_OFFSET);
     value.reset(newData);
     return true;
 }

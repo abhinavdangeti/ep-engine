@@ -145,11 +145,12 @@ extern "C" {
                                              const size_t nkey,
                                              const size_t nbytes,
                                              const int flags,
-                                             const rel_time_t exptime)
+                                             const rel_time_t exptime,
+                                             uint8_t datatype)
     {
         ENGINE_ERROR_CODE err_code = getHandle(handle)->itemAllocate(cookie, itm, key,
                                                                      nkey, nbytes, flags,
-                                                                     exptime);
+                                                                     exptime, datatype);
         releaseHandle(handle);
         return err_code;
     }
@@ -222,12 +223,14 @@ extern "C" {
                                            const uint64_t initial,
                                            const rel_time_t exptime,
                                            uint64_t *cas,
+                                           uint8_t datatype,
                                            uint64_t *result,
                                            uint16_t vbucket)
     {
         ENGINE_ERROR_CODE ecode = getHandle(handle)->arithmetic(cookie, key, nkey, increment,
                                                                 create, delta, initial,
-                                                                exptime, cas, result, vbucket);
+                                                                exptime, cas, datatype,
+                                                                result, vbucket);
         releaseHandle(handle);
         return ecode;
     }
@@ -1123,14 +1126,17 @@ extern "C" {
                                           uint32_t flags,
                                           uint32_t exptime,
                                           uint64_t cas,
+                                          uint8_t datatype,
                                           const void *data,
                                           size_t ndata,
                                           uint16_t vbucket)
     {
-        ENGINE_ERROR_CODE err_code = getHandle(handle)->tapNotify(cookie, engine_specific,
-                                                                  nengine, ttl, tap_flags, (uint16_t)tap_event, tap_seqno,
-                                                                  key, nkey, flags, exptime, cas, data, ndata,
-                                                                  vbucket);
+        ENGINE_ERROR_CODE err_code =
+            getHandle(handle)->tapNotify(cookie, engine_specific,
+                                         nengine, ttl, tap_flags,
+                                         (uint16_t)tap_event, tap_seqno,
+                                         key, nkey, flags, exptime, cas,
+                                         datatype, data, ndata, vbucket);
         releaseHandle(handle);
         return err_code;
     }
@@ -1140,8 +1146,9 @@ extern "C" {
                                       void **es, uint16_t *nes, uint8_t *ttl,
                                       uint16_t *flags, uint32_t *seqno,
                                       uint16_t *vbucket) {
-        uint16_t tap_event = getHandle(handle)->walkTapQueue(cookie, itm, es, nes, ttl,
-                                                             flags, seqno, vbucket);
+        uint16_t tap_event = getHandle(handle)->walkTapQueue(cookie, itm, es,
+                                                             nes, ttl, flags,
+                                                             seqno, vbucket);
         releaseHandle(handle);
         return static_cast<tap_event_t>(tap_event);
     }
@@ -1454,6 +1461,7 @@ extern "C" {
         itm_info->cas = it->getCas();
         itm_info->exptime = it->getExptime();
         itm_info->nbytes = it->getNBytes();
+        itm_info->datatype = *(it->getExtMeta());
         itm_info->flags = it->getFlags();
         itm_info->clsid = 0;
         itm_info->nkey = static_cast<uint16_t>(it->getNKey());
@@ -1555,6 +1563,7 @@ EventuallyPersistentEngine::EventuallyPersistentEngine(GET_SERVER_API get_server
     info.info.features[info.info.num_features++].feature = ENGINE_FEATURE_CAS;
     info.info.features[info.info.num_features++].feature = ENGINE_FEATURE_PERSISTENT_STORAGE;
     info.info.features[info.info.num_features++].feature = ENGINE_FEATURE_LRU;
+    info.info.features[info.info.num_features++].feature = ENGINE_FEATURE_DATATYPE;
 }
 
 ENGINE_ERROR_CODE EventuallyPersistentEngine::reserveCookie(const void *cookie) {
@@ -2179,6 +2188,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::tapNotify(const void *cookie,
                                                         uint32_t flags,
                                                         uint32_t exptime,
                                                         uint64_t cas,
+                                                        uint8_t datatype,
                                                         const void *data,
                                                         size_t ndata,
                                                         uint16_t vbucket)
@@ -2322,7 +2332,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::tapNotify(const void *cookie,
                     meta = true;
                 }
 
-                ret = ConnHandlerMutate(tc, k, cookie, flags, exptime, cas,
+                ret = ConnHandlerMutate(tc, k, cookie, flags, exptime, cas, datatype,
                                         seqnum, vbucket, meta, data, ndata, NULL, 0);
             }
         }
@@ -2513,6 +2523,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::ConnHandlerMutate(Consumer *consum
                                                                 uint32_t flags,
                                                                 uint32_t exptime,
                                                                 uint64_t cas,
+                                                                uint8_t datatype,
                                                                 uint32_t seqno,
                                                                 uint16_t vbucket,
                                                                 bool meta,
@@ -2523,7 +2534,11 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::ConnHandlerMutate(Consumer *consum
 {
     ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
 
-    value_t vblob(Blob::New(static_cast<const char*>(data), ndata));
+    uint8_t ext_meta[1];
+    uint8_t ext_len = EXT_META_LEN;
+    *(ext_meta) = datatype;
+    value_t vblob(Blob::New(static_cast<const char*>(data), ndata,
+                            ext_meta, ext_len));
     Item *item = new Item(key, flags, exptime, vblob);
     item->setVBucketId(vbucket);
     if (meta) {
@@ -4365,6 +4380,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::setWithMeta(const void* cookie,
     uint8_t *key = request->bytes + sizeof(request->bytes);
     uint16_t vbucket = ntohs(request->message.header.request.vbucket);
     uint32_t bodylen = ntohl(request->message.header.request.bodylen);
+    uint8_t datatype = request->message.header.request.datatype;
     size_t vallen = bodylen - keylen - extlen;
 
     if (vallen > maxItemSize) {
@@ -4394,8 +4410,11 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::setWithMeta(const void* cookie,
     }
 
     uint8_t *dta = key + keylen;
-    Item *itm = new Item(key, keylen, vallen, flags, expiration, cas, -1,
-                         vbucket);
+    uint8_t ext_meta[1];
+    uint8_t ext_len = EXT_META_LEN;
+    *(ext_meta) = datatype;
+    Item *itm = new Item(key, keylen, vallen, flags, expiration, ext_meta, ext_len,
+                         cas, -1, vbucket);
 
     if (itm == NULL) {
         return sendResponse(response, NULL, 0, NULL, 0, NULL, 0,
@@ -4710,6 +4729,7 @@ EventuallyPersistentEngine::returnMeta(const void* cookie,
     uint16_t vbucket = ntohs(request->message.header.request.vbucket);
     uint32_t bodylen = ntohl(request->message.header.request.bodylen);
     uint64_t cas = ntohll(request->message.header.request.cas);
+    uint8_t datatype = request->message.header.request.datatype;
     uint32_t mutate_type = ntohl(request->message.body.mutation_type);
     uint32_t flags = ntohl(request->message.body.flags);
     uint32_t exp = ntohl(request->message.body.expiration);
@@ -4718,11 +4738,14 @@ EventuallyPersistentEngine::returnMeta(const void* cookie,
     uint64_t seqno;
 
 
-
     ENGINE_ERROR_CODE ret = ENGINE_EINVAL;
     if (mutate_type == SET_RET_META || mutate_type == ADD_RET_META) {
         uint8_t *dta = key + keylen;
-        Item *itm = new Item(key, keylen, vallen, flags, exp, cas, -1, vbucket);
+        uint8_t ext_meta[1];
+        uint8_t ext_len = EXT_META_LEN;
+        *(ext_meta) = datatype;
+        Item *itm = new Item(key, keylen, vallen, flags, exp, ext_meta,
+                             ext_len, cas, -1, vbucket);
 
         if (!itm) {
             return sendResponse(response, NULL, 0, NULL, 0, NULL, 0,
@@ -5016,8 +5039,8 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::uprMutation(const void* cookie,
     if (consumer->isValidOpaque(opaque, vbucket)) {
         std::string k(static_cast<const char*>(key), nkey);
         ret = ConnHandlerMutate(consumer, k, cookie, flags, expiration, cas,
-                                revSeqno, vbucket, true, value, nvalue, meta,
-                                nmeta);
+                                datatype, revSeqno, vbucket, true, value, nvalue,
+                                meta, nmeta);
     } else {
         ret = ENGINE_FAILED;
     }

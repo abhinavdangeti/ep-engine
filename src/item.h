@@ -56,6 +56,24 @@ public:
      *
      * @param start the beginning of the data to copy into this blob
      * @param len the amount of data to copy in
+     * @param datatype the type of value to be held in the blob
+     *
+     * @return the new Blob instance
+     */
+    static Blob* New(const char *start, const size_t len, uint8_t *ext_meta,
+                     uint8_t ext_len) {
+        size_t total_len = len + sizeof(Blob) + FLEX_DATA_OFFSET + ext_len;
+        Blob *t = new (::operator new(total_len)) Blob(start, len, ext_meta,
+                                                       ext_len);
+        assert(t->vlength() == len);
+        return t;
+    }
+
+    /**
+     * Create a new Blob holding the given data.
+     *
+     * @param start the beginning of the data to copy into this blob
+     * @param len the amount of data to copy in
      *
      * @return the new Blob instance
      */
@@ -66,6 +84,7 @@ public:
         return t;
     }
 
+
     /**
      * Create a new Blob holding the contents of the given string.
      *
@@ -73,8 +92,25 @@ public:
      *
      * @return the new Blob instance
      */
-    static Blob* New(const std::string& s) {
-        return New(s.data(), s.length());
+    static Blob* New(const std::string& s, uint8_t* ext_meta,
+                     uint8_t ext_len) {
+        return New(s.data(), s.length(), ext_meta, ext_len);
+    }
+
+    /**
+     * Create a new Blob pre-filled with the given character.
+     *
+     * @param len the size of the blob
+     * @param datatype the type of value to be held in the blob
+     *
+     * @return the new Blob instance
+     */
+    static Blob* New(const size_t len, uint8_t *ext_meta, uint8_t ext_len) {
+        size_t total_len = len + sizeof(Blob) + FLEX_DATA_OFFSET + ext_len;
+        Blob *t = new (::operator new(total_len)) Blob(len, ext_meta,
+                                                       ext_len);
+        assert(t->vlength() == len);
+        return t;
     }
 
     /**
@@ -84,20 +120,36 @@ public:
      *
      * @return the new Blob instance
      */
-    static Blob* New(const size_t len) {
+    static Blob* New(const size_t len, uint8_t ext_len) {
         size_t total_len = len + sizeof(Blob);
-        Blob *t = new (::operator new(total_len)) Blob(len);
+        Blob *t = new (::operator new(total_len)) Blob(len, ext_len);
         assert(t->length() == len);
         return t;
     }
 
+
     // Actual accessorish things.
 
     /**
-     * Get the pointer to the contents of this Blob.
+     * Get the pointer to the contents of the Value part of this Blob.
      */
     const char* getData() const {
+        return data + FLEX_DATA_OFFSET + extMetaLen;
+    }
+
+    /**
+     * Get the pointer to the contents of Blob.
+     */
+    const char* getBlob() const {
         return data;
+    }
+
+    /**
+     * Return the datatype, stored in the Blob.
+     */
+    const char* getExtMeta() const {
+        assert(data);
+        return data + FLEX_DATA_OFFSET;
     }
 
     /**
@@ -108,6 +160,13 @@ public:
     }
 
     /**
+     * Get the length of just the value part in the Blob.
+     */
+    size_t vlength() const {
+        return size - extMetaLen - FLEX_DATA_OFFSET;
+    }
+
+    /**
      * Get the size of this Blob instance.
      */
     size_t getSize() const {
@@ -115,10 +174,19 @@ public:
     }
 
     /**
+     * Get extended meta data length, after subtracting the
+     * size of FLEX_META_CODE.
+     */
+    uint8_t getExtLen() const {
+        return extMetaLen;
+    }
+
+    /**
      * Get a std::string representation of this blob.
      */
     const std::string to_s() const {
-        return std::string(data, size);
+        return std::string(data + extMetaLen + FLEX_DATA_OFFSET,
+                           size - extMetaLen - FLEX_DATA_OFFSET);
     }
 
     // This is necessary for making C++ happy when I'm doing a
@@ -132,15 +200,40 @@ public:
 
 private:
 
+    explicit Blob(const char *start, const size_t len, uint8_t* ext_meta,
+                  uint8_t ext_len) :
+        size(static_cast<uint32_t>(len + FLEX_DATA_OFFSET + ext_len)),
+        extMetaLen(static_cast<uint8_t>(ext_len))
+    {
+        *(data) = FLEX_META_CODE;
+        std::memcpy(data + FLEX_DATA_OFFSET, ext_meta, ext_len);
+        std::memcpy(data + FLEX_DATA_OFFSET + ext_len, start, len);
+        ObjectRegistry::onCreateBlob(this);
+    }
+
     explicit Blob(const char *start, const size_t len) :
-        size(static_cast<uint32_t>(len))
+        size(static_cast<uint32_t>(len)),
+        extMetaLen(static_cast<uint8_t>(0))
     {
         std::memcpy(data, start, len);
         ObjectRegistry::onCreateBlob(this);
     }
 
-    explicit Blob(const size_t len) :
-        size(static_cast<uint32_t>(len))
+    explicit Blob(const size_t len, uint8_t* ext_meta, uint8_t ext_len) :
+        size(static_cast<uint32_t>(len + FLEX_DATA_OFFSET + ext_len)),
+        extMetaLen(static_cast<uint8_t>(ext_len))
+    {
+        *(data) = FLEX_META_CODE;
+        std::memcpy(data + FLEX_DATA_OFFSET, ext_meta, ext_len);;
+#ifdef VALGRIND
+        memset(data + FLEX_DATA_OFFSET + ext_len, 0, len);
+#endif
+        ObjectRegistry::onCreateBlob(this);
+    }
+
+    explicit Blob(const size_t len, uint8_t ext_len) :
+        size(static_cast<uint32_t>(len)),
+        extMetaLen(static_cast<uint8_t>(ext_len))
     {
 #ifdef VALGRIND
         memset(data, 0, len);
@@ -149,6 +242,7 @@ private:
     }
 
     const uint32_t size;
+    const uint8_t extMetaLen;
     char data[1];
 
     DISALLOW_COPY_AND_ASSIGN(Blob);
@@ -188,26 +282,28 @@ class Item : public RCValue {
 public:
 
     Item(const void* k, const size_t nk, const size_t nb,
-         const uint32_t fl, const time_t exp, uint64_t theCas = 0,
-         int64_t i = -1, uint16_t vbid = 0) :
+         const uint32_t fl, const time_t exp, uint8_t* ext_meta = NULL,
+         uint8_t ext_len = 0, uint64_t theCas = 0, int64_t i = -1,
+         uint16_t vbid = 0) :
         metaData(theCas, 1, fl, exp), bySeqno(i), vbucketId(vbid),
         op(queue_op_set)
     {
         key.assign(static_cast<const char*>(k), nk);
         assert(bySeqno != 0);
-        setData(NULL, nb);
+        setData(NULL, nb, ext_meta, ext_len);
         ObjectRegistry::onCreateItem(this);
     }
 
     Item(const std::string &k, const uint32_t fl, const time_t exp,
-         const void *dta, const size_t nb, uint64_t theCas = 0,
-         int64_t i = -1, uint16_t vbid = 0) :
+         const void *dta, const size_t nb, uint8_t* ext_meta = NULL,
+         uint8_t ext_len = 0, uint64_t theCas = 0, int64_t i = -1,
+         uint16_t vbid = 0) :
         metaData(theCas, 1, fl, exp), bySeqno(i), vbucketId(vbid),
         op(queue_op_set)
     {
         key.assign(k);
         assert(bySeqno != 0);
-        setData(static_cast<const char*>(dta), nb);
+        setData(static_cast<const char*>(dta), nb, ext_meta, ext_len);
         ObjectRegistry::onCreateItem(this);
     }
 
@@ -223,14 +319,15 @@ public:
     }
 
     Item(const void *k, uint16_t nk, const uint32_t fl, const time_t exp,
-         const void *dta, const size_t nb, uint64_t theCas = 0,
-         int64_t i = -1, uint16_t vbid = 0, uint64_t sno = 1) :
+         const void *dta, const size_t nb, uint8_t* ext_meta = NULL,
+         uint8_t ext_len = 0, uint64_t theCas = 0, int64_t i = -1,
+         uint16_t vbid = 0, uint64_t sno = 1) :
         metaData(theCas, sno, fl, exp), bySeqno(i), vbucketId(vbid),
         op(queue_op_set)
     {
         assert(bySeqno != 0);
         key.assign(static_cast<const char*>(k), nk);
-        setData(static_cast<const char*>(dta), nb);
+        setData(static_cast<const char*>(dta), nb, ext_meta, ext_len);
         ObjectRegistry::onCreateItem(this);
     }
 
@@ -254,6 +351,10 @@ public:
         return value.get() ? value->getData() : NULL;
     }
 
+    const char *getBlob() const {
+        return value.get() ? value->getBlob() : NULL;
+    }
+
     const value_t &getValue() const {
         return value;
     }
@@ -275,7 +376,7 @@ public:
     }
 
     uint32_t getNBytes() const {
-        return value.get() ? static_cast<uint32_t>(value->length()) : 0;
+        return value.get() ? static_cast<uint32_t>(value->vlength()) : 0;
     }
 
     size_t getValMemSize() const {
@@ -292,6 +393,14 @@ public:
 
     uint64_t getCas() const {
         return metaData.cas;
+    }
+
+    const char* getExtMeta() const {
+        return value.get() ? value->getExtMeta() : NULL;
+    }
+
+    uint8_t getExtMetaLen() const {
+        return value.get() ? value->getExtLen() : 0;
     }
 
     void setCas() {
@@ -414,14 +523,14 @@ private:
      * Set the item's data. This is only used by constructors, so we
      * make it private.
      */
-    void setData(const char *dta, const size_t nb) {
+    void setData(const char *dta, const size_t nb, uint8_t* ext_meta,
+                 uint8_t ext_len) {
         Blob *data;
         if (dta == NULL) {
-            data = Blob::New(nb);
+            data = Blob::New(nb, ext_meta, ext_len);
         } else {
-            data = Blob::New(dta, nb);
+            data = Blob::New(dta, nb, ext_meta, ext_len);
         }
-
         assert(data);
         value.reset(data);
     }
