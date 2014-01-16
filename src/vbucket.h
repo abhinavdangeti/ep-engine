@@ -135,6 +135,8 @@ class KVShard;
 typedef struct {
     size_t fileSpaceUsed;
     size_t fileSize;
+    size_t numCreates;
+    size_t numUpdates;
 } kvstats_ctx;
 
 /**
