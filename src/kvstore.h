@@ -172,7 +172,7 @@ public:
      *
      * @return false if the commit fails
      */
-    virtual bool commit() = 0;
+    virtual bool commit(Callback<kvstats_ctx> *cb) = 0;
 
     /**
      * Rollback the current transaction.

@@ -310,7 +310,7 @@ public:
      *
      * @return true if the commit is completed successfully.
      */
-    bool commit(void);
+    bool commit(Callback<kvstats_ctx> *cb);
 
     /**
      * Rollback a transaction (unless not currently in one).
@@ -564,7 +564,7 @@ private:
 
     void open();
     void close();
-    bool commit2couchstore(void);
+    bool commit2couchstore(Callback<kvstats_ctx> *cb);
     void queueItem(CouchRequest *req);
 
     uint64_t checkNewRevNum(std::string &dbname, bool newFile = false);
@@ -577,7 +577,8 @@ private:
                                     const couch_file_ops *ops,
                                     Db **db, uint64_t *newFileRev);
     couchstore_error_t saveDocs(uint16_t vbid, uint64_t rev, Doc **docs,
-                                DocInfo **docinfos, int docCount);
+                                DocInfo **docinfos, int docCount,
+                                Callback<kvstats_ctx> *cb);
     void commitCallback(CouchRequest **committedReqs, int numReqs,
                         couchstore_error_t errCode);
     couchstore_error_t saveVBState(Db *db, vbucket_state &vbState);

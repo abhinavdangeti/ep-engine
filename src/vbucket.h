@@ -132,6 +132,11 @@ private:
 class EventuallyPersistentEngine;
 class KVShard;
 
+typedef struct {
+    size_t fileSpaceUsed;
+    size_t fileSize;
+} kvstats_ctx;
+
 /**
  * An individual vbucket.
  */
@@ -156,6 +161,8 @@ public:
         dirtyQueueAge(0),
         dirtyQueuePendingWrites(0),
         numExpiredItems(0),
+        fileSpaceUsed(0),
+        fileSize(0),
         id(i),
         state(newState),
         initialState(initState),
@@ -370,6 +377,8 @@ public:
     AtomicValue<size_t>  dirtyQueuePendingWrites;
 
     AtomicValue<size_t>  numExpiredItems;
+    AtomicValue<size_t>  fileSpaceUsed;
+    AtomicValue<size_t>  fileSize;
 
 private:
     template <typename T>

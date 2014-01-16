@@ -1003,11 +1003,11 @@ StorageProperties CouchKVStore::getStorageProperties()
     return rv;
 }
 
-bool CouchKVStore::commit(void)
+bool CouchKVStore::commit(Callback<kvstats_ctx> *cb)
 {
     assert(!isReadOnly());
     if (intransaction) {
-        intransaction = commit2couchstore() ? false : true;
+        intransaction = commit2couchstore(cb) ? false : true;
     }
     return !intransaction;
 
@@ -1504,7 +1504,7 @@ int CouchKVStore::recordDbDump(Db *db, DocInfo *docinfo, void *ctx)
     return COUCHSTORE_SUCCESS;
 }
 
-bool CouchKVStore::commit2couchstore(void)
+bool CouchKVStore::commit2couchstore(Callback<kvstats_ctx> *cb)
 {
     bool success = true;
 
@@ -1530,7 +1530,8 @@ bool CouchKVStore::commit2couchstore(void)
     }
 
     // flush all
-    couchstore_error_t errCode = saveDocs(vbucket2flush, fileRev, docs, docinfos, reqIndex);
+    couchstore_error_t errCode = saveDocs(vbucket2flush, fileRev, docs,
+                                          docinfos, reqIndex, cb);
     if (errCode) {
         LOG(EXTENSION_LOG_WARNING,
             "Warning: commit failed, cannot save CouchDB docs "
@@ -1551,7 +1552,8 @@ bool CouchKVStore::commit2couchstore(void)
 }
 
 couchstore_error_t CouchKVStore::saveDocs(uint16_t vbid, uint64_t rev, Doc **docs,
-                                          DocInfo **docinfos, int docCount)
+                                          DocInfo **docinfos, int docCount,
+                                          Callback<kvstats_ctx> *kvstatcb)
 {
     couchstore_error_t errCode;
     bool retry_save_docs = false;
@@ -1559,6 +1561,8 @@ couchstore_error_t CouchKVStore::saveDocs(uint16_t vbid, uint64_t rev, Doc **doc
     hrtime_t retry_begin = 0;
     uint64_t fileRev = rev;
     assert(fileRev);
+    kvstats_ctx kvctx;
+    memset(&kvctx, 0, sizeof(kvstats_ctx));
 
     do {
         Db *db = NULL;
@@ -1651,6 +1655,8 @@ couchstore_error_t CouchKVStore::saveDocs(uint16_t vbid, uint64_t rev, Doc **doc
             if (db && !retry_save_docs) {
                 DbInfo info;
                 couchstore_db_info(db, &info);
+                kvctx.fileSpaceUsed = info.space_used;
+                kvctx.fileSize = info.file_size;
                 cachedDeleteCount[vbid] = info.deleted_count;
                 cachedDocCount[vbid] = info.doc_count;
             }
@@ -1666,6 +1672,9 @@ couchstore_error_t CouchKVStore::saveDocs(uint16_t vbid, uint64_t rev, Doc **doc
         st.commitRetryHisto.add((gethrtime() - retry_begin) / 1000);
     }
 
+    if (kvstatcb) {
+        kvstatcb->callback(kvctx);
+    }
     return errCode;
 }
 
@@ -1675,7 +1684,7 @@ void CouchKVStore::queueItem(CouchRequest *req)
         pendingReqsQ.front()->getVBucketId() != req->getVBucketId()) {
         // got new request for a different vb, commit pending
         // pending requests of the current vb firt
-        commit2couchstore();
+        commit2couchstore(NULL);
     }
     pendingReqsQ.push_back(req);
     pendingCommitCnt++;

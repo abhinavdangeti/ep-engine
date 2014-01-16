@@ -1050,6 +1050,24 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::compactDB(uint16_t vbid,
     return ENGINE_SUCCESS;
 }
 
+class KVStatsCallback : public Callback<kvstats_ctx> {
+    public:
+        KVStatsCallback(EventuallyPersistentStore *store, uint16_t vbid)
+            : epstore(store), vbucket(vbid) { }
+
+        void callback(kvstats_ctx &ctx) {
+            RCPtr<VBucket> vb = epstore->getVBucket(vbucket);
+            if (vb) {
+                vb->fileSpaceUsed.store(ctx.fileSpaceUsed);
+                vb->fileSize.store(ctx.fileSize);
+            }
+        }
+
+    private:
+        EventuallyPersistentStore *epstore;
+        uint16_t vbucket;
+};
+
 class ExpiredItemsCallback : public Callback<compaction_ctx> {
     public:
         ExpiredItemsCallback(EventuallyPersistentStore *store, uint16_t vbid)
@@ -2407,6 +2425,7 @@ int EventuallyPersistentStore::flushVBucket(uint16_t vbid) {
     LockHolder lh(shard->getWriteLock());
     RCPtr<VBucket> vb = vbMap.getBucket(vbid);
     if (vb) {
+        KVStatsCallback cb(this, vbid);
         std::vector<queued_item> items;
         KVStore *rwUnderlying = getRWUnderlying(vbid);
 
@@ -2452,7 +2471,7 @@ int EventuallyPersistentStore::flushVBucket(uint16_t vbid) {
                              stats.timingLog);
             hrtime_t start = gethrtime();
 
-            while (!rwUnderlying->commit()) {
+            while (!rwUnderlying->commit(&cb)) {
                 ++stats.commitFailed;
                 LOG(EXTENSION_LOG_WARNING, "Flusher commit failed!!! Retry in "
                     "1 sec...\n");
