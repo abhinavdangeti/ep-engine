@@ -435,6 +435,16 @@ void PassiveStream::acceptStream(uint16_t status, uint32_t add_opaque) {
     }
 }
 
+void PassiveStream::reconnectStream(RCPtr<VBucket> vb,
+                                    uint32_t new_opaque,
+                                    uint64_t start_seqno) {
+    uint64_t vb_uuid = vb->failovers->getLatestEntry().vb_uuid;
+    uint64_t high_seqno = vb->failovers->getLatestEntry().by_seqno;
+    LockHolder lh(streamMutex);
+    readyQ.push(new StreamRequest(vb_, new_opaque, flags_, start_seqno,
+                                  end_seqno_, vb_uuid, high_seqno));
+}
+
 UprResponse* PassiveStream::next() {
     LockHolder lh(streamMutex);
     if (!readyQ.empty()) {

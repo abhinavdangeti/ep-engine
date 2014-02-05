@@ -46,6 +46,8 @@
  */
 typedef std::pair<int, int64_t> mutation_result;
 
+typedef std::pair<ENGINE_ERROR_CODE, uint64_t> ROLLBACK_ERROR_CODE;
+
 struct vbucket_state {
     vbucket_state() { }
     vbucket_state(vbucket_state_t _state, uint64_t _chkid,
@@ -196,6 +198,10 @@ public:
                      uint16_t vb,
                      Callback<GetValue> &cb) = 0;
 
+    virtual void getWithHeader(void *_db_, const std::string &key,
+                               hrtime_t start, uint16_t vb,
+                               Callback<GetValue> &cb) = 0;
+
     /**
      * Get multiple items if supported by the kv store
      */
@@ -297,6 +303,10 @@ public:
     virtual size_t getNumItems(uint16_t) {
         return 0;
     }
+
+    virtual ROLLBACK_ERROR_CODE rollback(uint16_t vbid,
+                                         uint64_t rollbackseqno,
+                                         shared_ptr<Callback<GetValue> > cb) = 0;
 
     /**
      * This method is called before persisting a batch of data if you'd like to

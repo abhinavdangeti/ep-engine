@@ -16,6 +16,7 @@
  */
 
 #include "config.h"
+#include "libcouchstore/couch_common.h"
 
 #include "ep_engine.h"
 #include "upr-stream.h"
@@ -212,6 +213,54 @@ ENGINE_ERROR_CODE UprConsumer::step(struct upr_message_producers* producers) {
     return ENGINE_SUCCESS;
 }
 
+class DB_Callback : public Callback<GetValue> {
+public:
+    DB_Callback(EventuallyPersistentEngine& e) :
+        engine_(e), currHeader(NULL) { }
+
+    void setDbHeader(void *db) {
+        currHeader = (Db *)db;
+    }
+
+    void callback(GetValue &val) {
+        assert(val.getValue());
+        assert(currHeader);
+        Item *itm = val.getValue();
+        RCPtr<VBucket> vb = engine_.getVBucket(itm->getVBucketId());
+        int bucket_num(0);
+        RememberingCallback<GetValue> gcb;
+        hrtime_t start(gethrtime());
+        engine_.getEpStore()->getROUnderlying(itm->getVBucketId())->
+                                                    getWithHeader(currHeader,
+                                                    itm->getKey(), start,
+                                                    itm->getVBucketId(),
+                                                    gcb);
+        gcb.waitForValue();
+        assert(gcb.fired);
+        if (gcb.val.getStatus() == ENGINE_SUCCESS) {
+            mutation_type_t mtype = vb->ht.set(*itm, itm->getCas(), true, false,
+                                               engine_.getEpStore()->
+                                                        getItemEvictionPolicy(),
+                                               INITIAL_NRU_VALUE);
+            if (mtype == NOMEM) {
+                setStatus(ENGINE_ENOMEM);
+            }
+        } else {
+            LockHolder lh = vb->ht.getLockedBucket(itm->getKey(), &bucket_num);
+            bool ret = vb->ht.unlocked_del(itm->getKey(), bucket_num);
+            if (!ret) {
+                setStatus(ENGINE_KEY_ENOENT);
+            } else {
+                setStatus(ENGINE_SUCCESS);
+            }
+        }
+    }
+
+private:
+    EventuallyPersistentEngine& engine_;
+    Db *currHeader;
+};
+
 ENGINE_ERROR_CODE UprConsumer::handleResponse(
                                         protocol_binary_response_header *resp) {
     uint8_t opcode = resp->response.opcode;
@@ -229,7 +278,27 @@ ENGINE_ERROR_CODE UprConsumer::handleResponse(
             uint64_t rollbackSeqno = 0;
             memcpy(&rollbackSeqno, body, sizeof(uint64_t));
             rollbackSeqno = ntohll(rollbackSeqno);
-            return ENGINE_ENOTSUP;
+
+            opaque_map::iterator oitr = opaqueMap_.find(opaque);
+            if (oitr != opaqueMap_.end()) {
+                uint16_t vbid = oitr->second.second;
+                if (isValidOpaque(opaque, vbid)) {
+                    ExTask task = new RollbackTask(engine_.getEpStore(),
+                                                   opaque, vbid,
+                                                   rollbackSeqno, this,
+                                                   Priority::TapBgFetcherPriority);
+                    ExecutorPool::get()->schedule(task, READER_TASK_IDX);
+                    return ENGINE_SUCCESS;
+                } else {
+                    LOG(EXTENSION_LOG_WARNING, "%s : Opaque %lu for vbid %u "
+                            "not valid!", logHeader(), opaque, vbid);
+                    return ENGINE_FAILED;
+                }
+            } else {
+                LOG(EXTENSION_LOG_WARNING, "%s Opaque not found",
+                        logHeader());
+                return ENGINE_FAILED;
+            }
         }
 
         streamAccepted(opaque, status, body, bodylen);
@@ -240,6 +309,33 @@ ENGINE_ERROR_CODE UprConsumer::handleResponse(
         "disconnecting", logHeader(), opcode);
 
     return ENGINE_DISCONNECT;
+}
+
+void UprConsumer::doRollback(EventuallyPersistentStore *st,
+                             uint32_t opaque,
+                             uint16_t vbid,
+                             uint64_t rollbackSeqno) {
+    shared_ptr<Callback<GetValue> > cb(new DB_Callback(engine_));
+    ENGINE_ERROR_CODE errCode = ENGINE_SUCCESS;
+    errCode =  engine_.getEpStore()->rollback(vbid, rollbackSeqno, cb);
+    if (errCode == ENGINE_ROLLBACK) {
+        if (engine_.getEpStore()->resetVBucket(vbid)) {
+            errCode = ENGINE_SUCCESS;
+        } else {
+            LOG(EXTENSION_LOG_WARNING, "Vbucket %d not found",
+                    vbid);
+            errCode = ENGINE_FAILED;
+        }
+    }
+
+    if (errCode == ENGINE_SUCCESS) {
+        RCPtr<VBucket> vb = st->getVBucket(vbid);
+        streams_[vbid]->reconnectStream(vb, opaque, rollbackSeqno);
+    } else {
+         LOG(EXTENSION_LOG_WARNING, "%s Rollback failed",
+                                logHeader());
+         opaqueMap_.erase(opaque);
+    }
 }
 
 void UprConsumer::addStats(ADD_STAT add_stat, const void *c) {

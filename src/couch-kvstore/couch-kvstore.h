@@ -348,6 +348,9 @@ public:
     void get(const std::string &key, uint64_t rowid,
              uint16_t vb, Callback<GetValue> &cb);
 
+    void getWithHeader(void *_db_, const std::string &key, hrtime_t start,
+                       uint16_t vb, Callback<GetValue> &cb);
+
     /**
      * Retrieve the multiple documents from the underlying storage system at once.
      *
@@ -488,6 +491,17 @@ public:
      * @param vbid The vbucket of the file to get the number of docs for
      */
     size_t getNumItems(uint16_t vbid);
+
+    /**
+     * Do a rollback to the specified seqNo on the particular vbucket
+     *
+     * @param vbid The vbucket of the file that's to be rolled back
+     * @param rollbackSeqno The sequence number upto which the engine needs
+     * to be rolled back
+     * @param cb getvalue callback
+     */
+    ROLLBACK_ERROR_CODE rollback(uint16_t vbid, uint64_t rollbackSeqno,
+                                 shared_ptr<Callback<GetValue> > cb);
 
     /**
      * Perform the pre-optimizations before persisting dirty items

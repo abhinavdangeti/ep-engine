@@ -71,6 +71,9 @@ public:
 
     ENGINE_ERROR_CODE handleResponse(protocol_binary_response_header *resp);
 
+    void doRollback(EventuallyPersistentStore *st, uint32_t opaque,
+                    uint16_t vbid, uint64_t rollbackSeqno);
+
     void addStats(ADD_STAT add_stat, const void *c);
 
 private:
@@ -94,6 +97,33 @@ private:
     Mutex streamMutex;
     std::map<uint16_t, PassiveStream*> streams_;
     opaque_map opaqueMap_;
+};
+
+class RollbackTask : public GlobalTask {
+public:
+    RollbackTask(EventuallyPersistentStore* st,
+                 uint32_t opaque, uint16_t vbid,
+                 uint64_t rollbackSeqno, UprConsumer *conn,
+                 const Priority &p):
+        GlobalTask(&st->getEPEngine(), p, 0, false), store(st),
+        opaque(opaque), vbid(vbid), rollbackSeqno(rollbackSeqno),
+        cons(conn) { }
+
+    std::string getDescription() {
+        return std::string("Running rollback task");
+    }
+
+    bool run() {
+        cons->doRollback(store, opaque, vbid, rollbackSeqno);
+        return false;
+    }
+
+private:
+    EventuallyPersistentStore *store;
+    uint32_t opaque;
+    uint16_t vbid;
+    uint64_t rollbackSeqno;
+    UprConsumer* cons;
 };
 
 #endif  // SRC_UPR_CONSUMER_H_

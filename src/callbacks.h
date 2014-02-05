@@ -117,6 +117,8 @@ public:
      */
     virtual void callback(RV &value) = 0;
 
+    virtual void setDbHeader(void *) { }
+
     virtual void setStatus(int status) {
         myStatus = status;
     }

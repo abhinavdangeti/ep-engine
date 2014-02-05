@@ -374,14 +374,26 @@ void CouchKVStore::get(const std::string &key, uint64_t, uint16_t vb,
         return;
     }
 
+    getWithHeader(db, key, start, vb, cb);
+    closeDatabaseHandle(db);
+}
+
+void CouchKVStore::getWithHeader(void *_db_, const std::string &key,
+                                 hrtime_t start, uint16_t vb,
+                                 Callback<GetValue> &cb) {
+
+    Db *db = (Db *)_db_;
     RememberingCallback<GetValue> *rc = dynamic_cast<RememberingCallback<GetValue> *>(&cb);
     bool getMetaOnly = rc && rc->val.isPartial();
     DocInfo *docInfo = NULL;
     sized_buf id;
+    GetValue rv;
+    std::string dbFile;
 
     id.size = key.size();
     id.buf = const_cast<char *>(key.c_str());
-    errCode = couchstore_docinfo_by_id(db, (uint8_t *)id.buf, id.size, &docInfo);
+    couchstore_error_t errCode = couchstore_docinfo_by_id(db, (uint8_t *)id.buf,
+                                                          id.size, &docInfo);
     if (errCode != COUCHSTORE_SUCCESS) {
         if (!getMetaOnly) {
             // log error only if this is non-xdcr case
@@ -416,7 +428,6 @@ void CouchKVStore::get(const std::string &key, uint64_t, uint16_t vb,
     }
 
     couchstore_free_docinfo(docInfo);
-    closeDatabaseHandle(db);
     rv.setStatus(couchErr2EngineErr(errCode));
     cb.callback(rv);
 }
@@ -1522,6 +1533,7 @@ int CouchKVStore::recordDbDump(Db *db, DocInfo *docinfo, void *ctx)
         it->setDeleted();
     }
 
+
     GetValue rv(it, ENGINE_SUCCESS, -1, loadCtx->keysonly);
     cb->callback(rv);
 
@@ -2047,6 +2059,116 @@ size_t CouchKVStore::getNumItems(uint16_t vbid) {
             "vBucket = %d rev = %llu\n", vbid, rev);
     }
     return 0;
+}
+
+ROLLBACK_ERROR_CODE
+CouchKVStore::rollback(uint16_t vbid,
+                       uint64_t rollbackSeqno,
+                       shared_ptr<Callback<GetValue> > cb) {
+
+    Db *db = NULL;
+    DbInfo info;
+    uint64_t fileRev = dbFileRevMap[vbid];
+    std::stringstream id;
+    id << fileRev;
+    std::string dbFileName = dbname + "/" + id.str() + ".couch." + id.str();
+    couchstore_error_t errCode;
+    ROLLBACK_ERROR_CODE err;
+
+    errCode = openDB(vbid, fileRev, &db,
+                     (uint64_t) COUCHSTORE_OPEN_FLAG_RDONLY);
+
+    if (errCode == COUCHSTORE_SUCCESS) {
+        couchstore_db_info(db, &info);
+    } else {
+        LOG(EXTENSION_LOG_WARNING,
+                "Failed to open database, name=%s",
+                dbFileName.c_str());
+        err.first = ENGINE_FAILED;
+        err.second = 0;
+        return err;
+    }
+
+    uint64_t latestSeqno = info.last_sequence;
+
+    //Count from latest seq no to 0
+    uint64_t totSeqCount = 0;
+    couchstore_changes_count(db, 0, latestSeqno, &totSeqCount);
+    //Count from latest seq no to rollback seq no
+    uint64_t rollbackSeqCount = 0;
+    couchstore_changes_count(db, rollbackSeqno, latestSeqno, &rollbackSeqCount);
+
+    if ((totSeqCount / 2) <= rollbackSeqCount) {
+        //doresetVbucket flag set or rollback is greater than 50%,
+        //reset the vbucket and send the entire snapshot
+        closeDatabaseHandle(db);
+        err.first = ENGINE_ROLLBACK;
+        err.second = 0;
+        return err;
+    }
+
+    Db *newdb = NULL;
+    openDB(vbid, fileRev, &newdb, (uint64_t) COUCHSTORE_OPEN_FLAG_RDONLY);
+
+    while (info.last_sequence > rollbackSeqno) {
+        errCode = couchstore_rewind_db_header(newdb);
+        if (errCode != COUCHSTORE_SUCCESS) {
+            LOG(EXTENSION_LOG_WARNING,
+                    "Failed to rewind Db pointer "
+                    "for couch file with vbid: %u, whose "
+                    "lastSeqno: %llu, while trying to roll back "
+                    "to seqNo: %llu", vbid, latestSeqno, rollbackSeqno);
+            //Reset the vbucket and send the entire snapshot,
+            //as a previous header wasn't found.
+            closeDatabaseHandle(db);
+            closeDatabaseHandle(newdb);
+            err.first = ENGINE_ROLLBACK;
+            err.second = 0;
+            return err;
+        }
+        couchstore_db_info(newdb, &info);
+    }
+
+    //Undo all operations for items that fall in the range between
+    //latestSeqno and rolledbackSeqno
+    cb->setDbHeader(newdb);
+    shared_ptr<Callback<CacheLookup> > cl(new NoLookupCallback());
+    LoadResponseCtx ctx;
+    ctx.vbucketId = vbid;
+    ctx.endSeqno = latestSeqno;
+    ctx.keysonly = false;
+    ctx.lookup = cl;
+    ctx.callback = cb;
+    ctx.stats = &epStats;
+    errCode = couchstore_changes_since(db, info.last_sequence + 1,
+            COUCHSTORE_NO_OPTIONS,
+            recordDbDumpC,
+            static_cast<void *>(&ctx));
+    if (errCode != COUCHSTORE_SUCCESS) {
+        if (errCode == COUCHSTORE_ERROR_CANCEL) {
+            LOG(EXTENSION_LOG_WARNING,
+                    "Canceling loading database\n");
+        } else {
+            LOG(EXTENSION_LOG_WARNING,
+                    "Couchstore_changes_since failed, error=%s [%s]",
+                    couchstore_strerror(errCode),
+                    couchkvstore_strerrno(db, errCode).c_str());
+        }
+        closeDatabaseHandle(db);
+        closeDatabaseHandle(newdb);
+        err.first = ENGINE_ROLLBACK;
+        err.second = 0;
+        return err;
+    }
+
+    //Append the rewinded header to the database file, before closing handle
+    couchstore_commit(newdb);
+    closeDatabaseHandle(db);
+    closeDatabaseHandle(newdb);
+
+    err.first = ENGINE_SUCCESS;
+    err.second = info.last_sequence;
+    return err;
 }
 
 /* end of couch-kvstore.cc */
