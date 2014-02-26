@@ -324,6 +324,10 @@ public:
         return readOnly;
     }
 
+    virtual ENGINE_ERROR_CODE getAllKeys(uint16_t vbid,
+                                         std::string key, uint32_t count,
+                                         uint8_t sorting, void *ptr) = 0;
+
 protected:
     bool readOnly;
 
@@ -364,6 +368,37 @@ public:
 private:
     EventuallyPersistentEngine& engine_;
     void *dbHandle;
+};
+
+/**
+ * Callback class used by AllKeysAPI, for caching fetched keys
+ */
+class AllKeysCB {
+public:
+    AllKeysCB() {
+        allKeys.len = 0;
+        allKeys.buffersize = 32000;
+        allKeys.data = (char *) malloc(allKeys.buffersize);
+    }
+
+    ~AllKeysCB() {
+        free (allKeys.data);
+    }
+
+    void incrAllKeysBuffer();
+    void appendAllKeys (uint8_t len, char *buf);
+    void prependAllKeys (uint8_t len, char *buf);
+
+    char* fetchAllKeysPtr() { return allKeys.data; }
+    uint64_t fetchAllKeysLen() { return allKeys.len; }
+
+    struct allKeys {
+        allKeys() : len(0), buffersize(0), data(NULL) {}
+        uint64_t len;
+        uint64_t buffersize;
+        char *data;
+    } allKeys;
+
 };
 
 #endif  // SRC_KVSTORE_H_

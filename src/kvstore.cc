@@ -97,3 +97,34 @@ void RollbackCB::callback(GetValue &val) {
     }
     delete itm;
 }
+
+void AllKeysCB::incrAllKeysBuffer() {
+    //If buffer length is hit, increase buffer length by twice
+    allKeys.buffersize *= 2;
+    char *temp = (char *) malloc (allKeys.buffersize);
+    memcpy (temp, allKeys.data, allKeys.len);
+    free (allKeys.data);
+    allKeys.data = temp;
+}
+
+void AllKeysCB::appendAllKeys(uint8_t len, char *buf) {
+    if (allKeys.len + len > allKeys.buffersize) {
+        incrAllKeysBuffer();
+    }
+    memcpy (allKeys.data + allKeys.len, &len, 2);
+    memcpy (allKeys.data + allKeys.len + 2, buf, len);
+    allKeys.len += (len + 2);
+}
+
+void AllKeysCB::prependAllKeys(uint8_t len, char *buf) {
+    if (allKeys.len + len > allKeys.buffersize) {
+        incrAllKeysBuffer();
+    }
+    char *temp = (char *) malloc(allKeys.len);
+    memcpy (temp, allKeys.data, allKeys.len);
+    memcpy (allKeys.data, &len, 2);
+    memcpy (allKeys.data + 2, buf, len);
+    memcpy (allKeys.data + len + 2, temp, allKeys.len);
+    allKeys.len += (len + 2);
+    free (temp);
+}

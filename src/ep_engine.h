@@ -473,6 +473,13 @@ public:
                                 protocol_binary_request_get_cluster_config *request,
                                 ADD_RESPONSE response);
 
+    ENGINE_ERROR_CODE getAllKeys(const void* cookie,
+                                protocol_binary_request_get_keys *request,
+                                ADD_RESPONSE response);
+
+    void completeGetAllKeys(const void* cookie, uint16_t vbid, std::string key,
+                            uint32_t count, uint8_t sorting, ADD_RESPONSE response);
+
     /**
      * Visit the objects and add them to the tap/upr connecitons queue.
      * @todo this code should honor the backfill time!
@@ -822,6 +829,10 @@ private:
         }
     }
 
+    void addLookupAllKeys(const void *cookie, ENGINE_ERROR_CODE err);
+    bool isLookupAllKeys(const void *cookie);
+    ENGINE_ERROR_CODE fetchLookupAllKeys(const void *cookie);
+
     // Get the current tap connection for this cookie.
     // If this method returns NULL, you should return TAP_DISCONNECT
     TapProducer* getTapProducer(const void *cookie);
@@ -833,6 +844,7 @@ private:
 
     TapThrottle *tapThrottle;
     std::map<const void*, Item*> lookups;
+    std::map<const void*, ENGINE_ERROR_CODE> allKeysLookups;
     Mutex lookupMutex;
     GET_SERVER_API getServerApiFunc;
     union {

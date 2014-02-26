@@ -1122,6 +1122,10 @@ extern "C" {
             }
 
             return h->getRandomKey(cookie, response);
+        case CMD_GET_KEYS:
+            return h->getAllKeys(cookie,
+               reinterpret_cast<protocol_binary_request_get_keys*>(request),
+                                                                   response);
         }
 
         // Send a special response for getl since we don't want to send the key
@@ -1677,6 +1681,7 @@ EventuallyPersistentEngine::EventuallyPersistentEngine(
                                              ENGINE_FEATURE_PERSISTENT_STORAGE;
     info.info.features[info.info.num_features++].feature = ENGINE_FEATURE_LRU;
     info.info.features[info.info.num_features++].feature = ENGINE_FEATURE_DATATYPE;
+
 }
 
 ENGINE_ERROR_CODE EventuallyPersistentEngine::reserveCookie(const void *cookie)
@@ -4079,6 +4084,34 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::doDiskStats(const void *cookie,
     return ENGINE_SUCCESS;
 }
 
+void EventuallyPersistentEngine::addLookupAllKeys(const void *cookie,
+                                                  ENGINE_ERROR_CODE err) {
+    LockHolder lh(lookupMutex);
+    allKeysLookups[cookie] = err;
+}
+
+bool EventuallyPersistentEngine::isLookupAllKeys(const void *cookie) {
+    // This will check for a lookup result.
+    LockHolder lh(lookupMutex);
+    return allKeysLookups.find(cookie) != allKeysLookups.end();
+}
+
+ENGINE_ERROR_CODE EventuallyPersistentEngine::fetchLookupAllKeys(
+                                                        const void *cookie) {
+    // This will return *and erase* the lookup result for a connection.
+    LockHolder lh(lookupMutex);
+    std::map<const void*, ENGINE_ERROR_CODE>::iterator it =
+        allKeysLookups.find(cookie);
+    if (it != allKeysLookups.end()) {
+        if (it->second == ENGINE_SUCCESS || it->second == ENGINE_FAILED) {
+            allKeysLookups.erase(it);
+        }
+        return it->second;
+    }
+    return ENGINE_FAILED;
+}
+
+
 ENGINE_ERROR_CODE EventuallyPersistentEngine::getStats(const void* cookie,
                                                        const char* stat_key,
                                                        int nkey,
@@ -5223,6 +5256,102 @@ EventuallyPersistentEngine::getClusterConfig(const void* cookie,
     return sendResponse(response, NULL, 0, NULL, 0, clusterConfig.config,
                         clusterConfig.len, PROTOCOL_BINARY_RAW_BYTES,
                         PROTOCOL_BINARY_RESPONSE_SUCCESS, 0, cookie);
+}
+
+/*
+ * Task that fetches all_docs and returns response,
+ * runs in background.
+ */
+class FetchAllKeysTask : public GlobalTask {
+public:
+    FetchAllKeysTask(EventuallyPersistentEngine *e, const void *c,
+                     ADD_RESPONSE resp, std::string key_,
+                     uint16_t vbucket, uint32_t count_,
+                     uint8_t sorting_, const Priority &p) :
+        GlobalTask(e, p, 0, false), engine(e), cookie(c),
+        response(resp), key(key_), vbid(vbucket),
+        count(count_), sorting(sorting_) { }
+
+    std::string getDescription() {
+        return std::string("Running the ALL_DOCS api on vbucket: %d", vbid);
+    }
+
+    bool run() {
+        engine->completeGetAllKeys(cookie, vbid, key, count, sorting, response);
+        return false;
+    }
+
+private:
+    EventuallyPersistentEngine *engine;
+    const void *cookie;
+    ADD_RESPONSE response;
+    std::string key;
+    uint16_t vbid;
+    uint32_t count;
+    uint8_t sorting;
+};
+
+ENGINE_ERROR_CODE
+EventuallyPersistentEngine::getAllKeys(const void* cookie,
+                                protocol_binary_request_get_keys *request,
+                                ADD_RESPONSE response) {
+
+    if (isLookupAllKeys(cookie)) {
+        return fetchLookupAllKeys(cookie);
+    }
+
+    uint16_t vbucket = ntohs(request->message.header.request.vbucket);
+    //key: key, ext: no. of keys to fetch, sorting-order
+    uint16_t keylen = ntohs(request->message.header.request.keylen);
+    uint8_t extlen = request->message.header.request.extlen;
+
+    uint32_t count = 1000;
+    uint8_t sorting = 0x00;
+
+    if (extlen > 0) {
+        assert(extlen == (sizeof(uint8_t) + sizeof(uint32_t)));
+        memcpy(&count, request->bytes + sizeof(request->bytes),
+               sizeof(uint32_t));
+        count = ntohl(count);
+        sorting = *(request->bytes + sizeof(request->bytes) + sizeof(uint32_t));
+    }
+
+    char *keyptr = NULL;
+    if (keylen > 0) {
+        keyptr = (char*) malloc(keylen);
+        memcpy(keyptr, request->bytes + sizeof(request->bytes) + extlen,
+               keylen);
+    }
+    std::string key(keyptr, keylen);
+    free (keyptr);
+
+    ExTask task = new FetchAllKeysTask(this, cookie, response, key,
+                                       vbucket, count, sorting,
+                                       Priority::BgFetcherPriority);
+    ExecutorPool::get()->schedule(task, READER_TASK_IDX);
+    addLookupAllKeys(cookie, ENGINE_EWOULDBLOCK);
+    return ENGINE_EWOULDBLOCK;
+}
+
+void EventuallyPersistentEngine::completeGetAllKeys(const void* cookie,
+                                                    uint16_t vbid,
+                                                    std::string key,
+                                                    uint32_t count,
+                                                    uint8_t sorting,
+                                                    ADD_RESPONSE response) {
+    AllKeysCB *cb = new AllKeysCB();
+    ENGINE_ERROR_CODE err =
+                getEpStore()->getROUnderlying(vbid)->getAllKeys(vbid,
+                                                                key, count,
+                                                                sorting, cb);
+    if (err == ENGINE_SUCCESS) {
+        err =  sendResponse(response, NULL, 0, &(sorting), 1,
+                            cb->fetchAllKeysPtr(), cb->fetchAllKeysLen(),
+                            PROTOCOL_BINARY_RAW_BYTES,
+                            PROTOCOL_BINARY_RESPONSE_SUCCESS, 0, cookie);
+    }
+    addLookupAllKeys(cookie, err);
+    notifyIOComplete(cookie, err);
 }
 
 ENGINE_ERROR_CODE EventuallyPersistentEngine::getRandomKey(const void *cookie,
