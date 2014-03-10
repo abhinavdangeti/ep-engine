@@ -359,6 +359,8 @@ void LoadValueCallback::callback(CacheLookup &lookup)
 
 Warmup::Warmup(EventuallyPersistentStore *st) :
     state(), store(st), startTime(0), metadata(0), warmup(0),
+    tempTime(0), warmup1(0), warmup2(0), warmup3(0), warmup4(0), warmup5(0), warmup6(0), warmup7(0),
+    shard1(0), shard2(0), shard3(0), shard4(0),
     threadtask_count(0),
     estimateTime(0), estimatedItemCount(std::numeric_limits<size_t>::max()),
     cleanShutdown(true), corruptAccessLog(false), warmupComplete(false),
@@ -430,11 +432,13 @@ void Warmup::initialize()
     }
 
     populateShardVbStates();
+    warmup1 = gethrtime() - startTime;
     transition(WarmupState::CreateVBuckets);
 }
 
 void Warmup::scheduleCreateVBuckets()
 {
+    tempTime = gethrtime();
     threadtask_count = 0;
     for (size_t i = 0; i < store->vbMap.shards.size(); i++) {
         ExTask task = new WarmupCreateVBuckets(*store, i, this,
@@ -478,6 +482,7 @@ void Warmup::createVBuckets(uint16_t shardId) {
 
     }
     if (++threadtask_count == store->vbMap.numShards) {
+        warmup2 = gethrtime() - tempTime;
         transition(WarmupState::EstimateDatabaseItemCount);
     }
 }
@@ -485,6 +490,7 @@ void Warmup::createVBuckets(uint16_t shardId) {
 
 void Warmup::scheduleEstimateDatabaseItemCount()
 {
+    tempTime = gethrtime();
     threadtask_count = 0;
     estimateTime = 0;
     estimatedItemCount = 0;
@@ -515,6 +521,7 @@ void Warmup::estimateDatabaseItemCount(uint16_t shardId)
     estimateTime += (gethrtime() - st);
 
     if (++threadtask_count == store->vbMap.numShards) {
+        warmup3 = gethrtime() - tempTime;
         if (store->getItemEvictionPolicy() == VALUE_ONLY) {
             transition(WarmupState::KeyDump);
         } else {
@@ -525,6 +532,7 @@ void Warmup::estimateDatabaseItemCount(uint16_t shardId)
 
 void Warmup::scheduleKeyDump()
 {
+    tempTime = gethrtime();
     threadtask_count = 0;
     for (size_t i = 0; i < store->vbMap.shards.size(); i++) {
         ExTask task = new WarmupKeyDump(*store, this,
@@ -540,11 +548,22 @@ void Warmup::keyDumpforShard(uint16_t shardId)
         LoadStorageKVPairCallback *load_cb =
             new LoadStorageKVPairCallback(store, false, state.getState());
         shared_ptr<Callback<GetValue> > cb(load_cb);
+        hrtime_t temp = gethrtime();
         store->getAuxUnderlying()->dumpKeys(shardVbIds[shardId], cb);
+        if (shardId == 0) {
+            shard1 = gethrtime() - temp;
+        } else if (shardId == 1) {
+            shard2 = gethrtime() - temp;
+        } else if (shardId == 2) {
+            shard3 = gethrtime() - temp;
+        } else if (shardId == 3) {
+            shard4 = gethrtime() - temp;
+        }
         shardKeyDumpStatus[shardId] = true;
     }
 
     if (++threadtask_count == store->vbMap.numShards) {
+        warmup4 = gethrtime() - tempTime;
         bool success = false;
         for (size_t i = 0; i < store->vbMap.numShards; i++) {
             if (shardKeyDumpStatus[i]) {
@@ -608,6 +627,7 @@ void Warmup::checkForAccessLog()
 
 void Warmup::scheduleLoadingAccessLog()
 {
+    tempTime = gethrtime();
     threadtask_count = 0;
     for (size_t i = 0; i < store->vbMap.shards.size(); i++) {
         ExTask task = new WarmupLoadAccessLog(*store, this, i,
@@ -669,10 +689,10 @@ void Warmup::loadingAccessLog(uint16_t shardId)
 
     delete load_cb;
     if (++threadtask_count == store->vbMap.numShards) {
+        warmup5 = gethrtime() - tempTime;
         if (!store->maybeEnableTraffic()) {
             transition(WarmupState::LoadingData);
-        }
-        else {
+        } else {
             transition(WarmupState::Done);
         }
 
@@ -716,6 +736,7 @@ size_t Warmup::doWarmup(MutationLog &lf, const std::map<uint16_t,
 
 void Warmup::scheduleLoadingKVPairs()
 {
+    tempTime = gethrtime();
     threadtask_count = 0;
     for (size_t i = 0; i < store->vbMap.shards.size(); i++) {
         ExTask task = new WarmupLoadingKVPairs(*store, this,
@@ -740,12 +761,14 @@ void Warmup::loadKVPairsforShard(uint16_t shardId)
         cl(new LoadValueCallback(store->vbMap, state.getState()));
     store->getAuxUnderlying()->dump(shardVbIds[shardId], cb, cl);
     if (++threadtask_count == store->vbMap.numShards) {
+        warmup6 = gethrtime() - tempTime;
         transition(WarmupState::Done);
     }
 }
 
 void Warmup::scheduleLoadingData()
 {
+    tempTime = gethrtime();
     size_t estimatedCount = store->getEPEngine().getEpStats().warmedUpKeys;
     setEstimatedWarmupCount(estimatedCount);
 
@@ -767,6 +790,7 @@ void Warmup::loadDataforShard(uint16_t shardId)
     store->getAuxUnderlying()->dump(shardVbIds[shardId], cb, cl);
 
     if (++threadtask_count == store->vbMap.numShards) {
+        warmup7 = gethrtime() - tempTime;
         transition(WarmupState::Done);
     }
 }

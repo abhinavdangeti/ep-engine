@@ -5302,6 +5302,20 @@ static enum test_result test_warmup_stats(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1
     check(vals.find("vb_1:num_items")->second == "0",
           "Expected zero items in VB 1");
 
+
+    int warmedup1 = get_int_stat(h, h1, "ep_warmup__1_ini_time");
+    int warmedup2 = get_int_stat(h, h1, "ep_warmup__2_cre_time");
+    int warmedup3 = get_int_stat(h, h1, "ep_warmup__3_est_time");
+    int warmedup4 = get_int_stat(h, h1, "ep_warmup__4_key_time");
+    int warmedup5 = get_int_stat(h, h1, "ep_warmup__5_log_time");
+    int warmedup6 = get_int_stat(h, h1, "ep_warmup__6_kvp_time");
+    int warmedup7 = get_int_stat(h, h1, "ep_warmup__7_dat_time");
+    int warmedup = get_int_stat(h, h1, "ep_warmup__time");
+
+    fprintf(stderr, "\nWarmup:\n INI: %d\n CRE: %d\n EST: %d\n KEY: %d\n LOG: %d"
+            "\n KVP: %d\n DAT: %d \n TOTAL: %d\n", warmedup1, warmedup2,
+            warmedup3, warmedup4, warmedup5, warmedup6, warmedup7, warmedup);
+
     return SUCCESS;
 }
 

@@ -3149,8 +3149,20 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::doEngineStats(const void *cookie,
             add_casted_stat("ep_warmup_thread", "running", add_stat, cookie);
         }
         if (wp->getTime() > 0) {
-            add_casted_stat("ep_warmup_time", wp->getTime() / 1000,
+            add_casted_stat("ep_warmup__time", wp->getTime() / 1000,
                             add_stat, cookie);
+            add_casted_stat("ep_warmup__1_ini_time", wp->getInitializeTime() / 1000, add_stat, cookie);
+            add_casted_stat("ep_warmup__2_cre_time", wp->getCreateVBTime() / 1000, add_stat, cookie);
+            add_casted_stat("ep_warmup__3_est_time", wp->getEstimationTime() / 1000, add_stat, cookie);
+            add_casted_stat("ep_warmup__4_key_time", wp->getKeyDumpTime() / 1000, add_stat, cookie);
+            add_casted_stat("ep_warmup__5_log_time", wp->getLoadLogTime() / 1000, add_stat, cookie);
+            add_casted_stat("ep_warmup__6_kvp_time", wp->getLoadKVPTime() / 1000, add_stat, cookie);
+            add_casted_stat("ep_warmup__7_dat_time", wp->getLoadDataTime() / 1000, add_stat, cookie);
+
+            add_casted_stat("ep_warmup__shard1", wp->getShard1() / 1000, add_stat, cookie);
+            add_casted_stat("ep_warmup__shard2", wp->getShard2() / 1000, add_stat, cookie);
+            add_casted_stat("ep_warmup__shard3", wp->getShard3() / 1000, add_stat, cookie);
+            add_casted_stat("ep_warmup__shard4", wp->getShard4() / 1000, add_stat, cookie);
         }
         add_casted_stat("ep_warmup_oom", epstats.warmOOM, add_stat, cookie);
         add_casted_stat("ep_warmup_dups", epstats.warmDups, add_stat, cookie);

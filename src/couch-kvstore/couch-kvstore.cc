@@ -1165,9 +1165,11 @@ void CouchKVStore::loadDB(shared_ptr<Callback<GetValue> > cb,
         ctx.callback = cb;
         ctx.lookup = cl;
         ctx.stats = &epStats;
+        hrtime_t t1 = gethrtime();
         errorCode = couchstore_changes_since(db, startSeqno, options,
                                              recordDbDumpC,
                                              static_cast<void *>(&ctx));
+        fprintf(stderr, "\nchanges_since: %llu", (gethrtime() - t1) / 1000);
         if (errorCode != COUCHSTORE_SUCCESS) {
             if (errorCode == COUCHSTORE_ERROR_CANCEL) {
                 LOG(EXTENSION_LOG_WARNING,

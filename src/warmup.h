@@ -139,6 +139,19 @@ public:
 
     hrtime_t getTime(void) { return warmup; }
 
+    hrtime_t getInitializeTime(void) { return warmup1; }
+    hrtime_t getCreateVBTime(void) { return warmup2; }
+    hrtime_t getEstimationTime(void) { return warmup3; }
+    hrtime_t getKeyDumpTime(void) { return warmup4; }
+    hrtime_t getLoadLogTime(void) { return warmup5; }
+    hrtime_t getLoadKVPTime(void) { return warmup6; }
+    hrtime_t getLoadDataTime(void) { return warmup7; }
+
+    hrtime_t getShard1(void) { return shard1; }
+    hrtime_t getShard2(void) { return shard2; }
+    hrtime_t getShard3(void) { return shard3; }
+    hrtime_t getShard4(void) { return shard4; }
+
     size_t doWarmup(MutationLog &lf, const std::map<uint16_t,
                     vbucket_state> &vbmap, Callback<GetValue> &cb);
 
@@ -180,6 +193,19 @@ private:
     hrtime_t startTime;
     hrtime_t metadata;
     hrtime_t warmup;
+
+    hrtime_t tempTime;
+    hrtime_t warmup1;
+    hrtime_t warmup2;
+    hrtime_t warmup3;
+    hrtime_t warmup4;
+    hrtime_t warmup5;
+    hrtime_t warmup6;
+    hrtime_t warmup7;
+    hrtime_t shard1;
+    hrtime_t shard2;
+    hrtime_t shard3;
+    hrtime_t shard4;
 
     std::map<uint16_t, vbucket_state> allVbStates;
     std::map<uint16_t, vbucket_state> *shardVbStates;
