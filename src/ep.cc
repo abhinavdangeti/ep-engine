@@ -1084,9 +1084,9 @@ bool EventuallyPersistentStore::compactVBucket(const uint16_t vbid,
                                                const void *cookie) {
     KVShard *shard = vbMap.getShard(vbid);
     ENGINE_ERROR_CODE err = ENGINE_SUCCESS;
-    LockHolder lh(shard->getWriteLock());
     RCPtr<VBucket> vb = vbMap.getBucket(vbid);
     if (vb) {
+        LockHolder lh(vb->getWLock());
         if (vb->getState() == vbucket_state_active) {
             // Set the current time ONLY for active vbuckets.
             ctx->curr_time = ep_real_time();
@@ -2456,9 +2456,9 @@ int EventuallyPersistentStore::flushVBucket(uint16_t vbid) {
     bool schedule_vb_snapshot = false;
     rel_time_t flush_start = ep_current_time();
 
-    LockHolder lh(shard->getWriteLock());
     RCPtr<VBucket> vb = vbMap.getBucket(vbid);
     if (vb) {
+        LockHolder lh(vb->getWLock());
         KVStatsCallback cb(this);
         std::vector<queued_item> items;
         KVStore *rwUnderlying = getRWUnderlying(vbid);

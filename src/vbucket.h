@@ -366,6 +366,17 @@ public:
     volatile size_t  fileSpaceUsed;
     volatile size_t  fileSize;
 
+    /**
+     * KVStore operations of Flush and compactVB,
+     * read and alter KVStore variables and hence need to be
+     * serialized.
+     *
+     * @return the actual mutex
+     */
+    Mutex &getWLock(void) {
+        return wLock;
+    }
+
 private:
     template <typename T>
     void addStat(const char *nm, const T &val, ADD_STAT add_stat, const void *c);
@@ -390,6 +401,7 @@ private:
     std::list<HighPriorityVBEntry> hpChks;
     volatile size_t numHpChks; // size of list hpChks (to avoid MB-9434)
     KVShard *shard;
+    Mutex wLock;
 
     static size_t chkFlushTimeout;
 

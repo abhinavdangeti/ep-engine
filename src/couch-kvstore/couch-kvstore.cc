@@ -945,6 +945,7 @@ bool CouchKVStore::setVBucketState(uint16_t vbucketId, vbucket_state &vbstate,
         }
 
         fileRev = newFileRev;
+        /*
         errorCode = saveVBState(db, vbstate);
         if (errorCode != COUCHSTORE_SUCCESS) {
             ++st.numVbSetFailure;
@@ -956,6 +957,7 @@ bool CouchKVStore::setVBucketState(uint16_t vbucketId, vbucket_state &vbstate,
         }
 
         errorCode = couchstore_commit(db);
+        */
         if (errorCode != COUCHSTORE_SUCCESS) {
             ++st.numVbSetFailure;
             LOG(EXTENSION_LOG_WARNING,
