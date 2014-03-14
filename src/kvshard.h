@@ -135,7 +135,7 @@ public:
     }
 
     /**
-     * KVStore operations of Flush, VBDelete and VBSnapshot read and alter
+     * KVStore operations of VBDelete and VBSnapshot read and alter
      * global KVStore variables and hence need to be serialized
      *
      * @return the actual mutex
