@@ -300,9 +300,13 @@ CouchRequest::CouchRequest(const Item &it, uint64_t rev,
 
 CouchKVStore::CouchKVStore(EPStats &stats, Configuration &config, bool read_only) :
     KVStore(read_only), epStats(stats), configuration(config),
-    dbname(configuration.getDbname()), couchNotifier(NULL),
+    dbname(configuration.getDbname()),
     intransaction(false), dbFileRevMapPopulated(false)
 {
+    numShards = configuration.getMaxNumShards();
+    for (uint16_t i = 0; i < numShards; i++) {
+        couchNotifiers.push_back(NULL);
+    }
     open();
     statCollectingFileOps = getCouchstoreStatsOps(&st.fsStats);
 
@@ -317,11 +321,15 @@ CouchKVStore::CouchKVStore(const CouchKVStore &copyFrom) :
     KVStore(copyFrom), epStats(copyFrom.epStats),
     configuration(copyFrom.configuration),
     dbname(copyFrom.dbname),
-    couchNotifier(NULL), dbFileRevMap(copyFrom.dbFileRevMap),
+    dbFileRevMap(copyFrom.dbFileRevMap),
     numDbFiles(copyFrom.numDbFiles),
     intransaction(false),
     dbFileRevMapPopulated(copyFrom.dbFileRevMapPopulated)
 {
+    numShards = configuration.getMaxNumShards();
+    for (int i = 0; i < numShards; i++) {
+        couchNotifiers.push_back(NULL);
+    }
     open();
     statCollectingFileOps = getCouchstoreStatsOps(&st.fsStats);
 }
@@ -333,7 +341,9 @@ void CouchKVStore::reset(bool notify)
 
     if (notify) {
         RememberingCallback<bool> cb;
-        couchNotifier->flush(cb);
+        for (uint16_t i = 0; i < numShards; i++) {
+            couchNotifiers[i]->flush(i, cb);
+        }
         cb.waitForValue();
     }
 
@@ -513,10 +523,10 @@ void CouchKVStore::del(const Item &itm,
 bool CouchKVStore::delVBucket(uint16_t vbucket, bool recreate)
 {
     assert(!isReadOnly());
-    assert(couchNotifier);
+    assert(couchNotifiers[vbucket % numShards]);
     RememberingCallback<bool> cb;
 
-    couchNotifier->delVBucket(vbucket, cb);
+    couchNotifiers[vbucket % numShards]->delVBucket(vbucket, cb);
     cb.waitForValue();
 
     if (recreate) {
@@ -792,7 +802,8 @@ bool CouchKVStore::notifyCompaction(const uint16_t vbid, uint64_t new_rev,
 
     VBStateNotification vbs(0, 0, result, vbid);
 
-    couchNotifier->notify_update(vbs, new_rev, header_pos, lcb);
+    couchNotifiers[vbid % numShards]->notify_update(vbs, new_rev,
+                                                    header_pos, lcb);
     if (lcb.val != PROTOCOL_BINARY_RESPONSE_SUCCESS) {
         LOG(EXTENSION_LOG_WARNING,
                 "Warning: compactor failed to notify mccouch on vbucket "
@@ -979,7 +990,8 @@ bool CouchKVStore::setVBucketState(uint16_t vbucketId, vbucket_state &vbstate,
                 VBStateNotification vbs(vbstate.checkpointId, vbstate.state,
                         vb_change_type, vbucketId);
 
-                couchNotifier->notify_update(vbs, fileRev, newHeaderPos, lcb);
+                couchNotifiers[vbucketId % numShards]->
+                    notify_update(vbs, fileRev, newHeaderPos, lcb);
                 if (lcb.val != PROTOCOL_BINARY_RESPONSE_SUCCESS) {
                     if (lcb.val == PROTOCOL_BINARY_RESPONSE_ETMPFAIL) {
                         LOG(EXTENSION_LOG_WARNING,
@@ -1093,7 +1105,9 @@ void CouchKVStore::addStats(const std::string &prefix,
         addStat(prefix_str, "numCommitRetry", st.numCommitRetry, add_stat, c);
 
         // stats for CouchNotifier
-        couchNotifier->addStats(prefix, add_stat, c);
+        for (uint16_t i = 0; i < numShards; i++) {
+            couchNotifiers[i]->addStats(prefix, add_stat, c);
+        }
     }
 }
 
@@ -1194,7 +1208,9 @@ void CouchKVStore::open()
     // TODO intransaction, is it needed?
     intransaction = false;
     if (!isReadOnly()) {
-        couchNotifier = CouchNotifier::create(epStats, configuration);
+        for (int i = 0; i < configuration.getMaxNumShards(); i++ ) {
+            couchNotifiers[i] = CouchNotifier::create(epStats, configuration, i);
+        }
     }
 
     struct stat dbstat;
@@ -1220,7 +1236,9 @@ void CouchKVStore::close()
     if (!isReadOnly()) {
         CouchNotifier::deleteNotifier();
     }
-    couchNotifier = NULL;
+    for (uint16_t i = 0; i < numShards; i++) {
+        couchNotifiers[i] = NULL;
+    }
 }
 
 uint64_t CouchKVStore::checkNewRevNum(std::string &dbFileName, bool newFile)
@@ -1716,7 +1734,8 @@ couchstore_error_t CouchKVStore::saveDocs(uint16_t vbid, uint64_t rev, Doc **doc
 
             RememberingCallback<uint16_t> cb;
             uint64_t newHeaderPos = couchstore_get_header_position(db);
-            couchNotifier->notify_headerpos_update(vbid, newFileRev, newHeaderPos, cb);
+            couchNotifiers[vbid % numShards]->
+                notify_headerpos_update(vbid, newFileRev, newHeaderPos, cb);
             if (cb.val != PROTOCOL_BINARY_RESPONSE_SUCCESS) {
                 if (cb.val == PROTOCOL_BINARY_RESPONSE_ETMPFAIL) {
                     LOG(EXTENSION_LOG_WARNING,

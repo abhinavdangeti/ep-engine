@@ -140,23 +140,39 @@ public:
         if (--refCount == 0) {
             // no bucket is referencing CouchNotifier instances
             // we can safely free all now
-            std::map<std::string, CouchNotifier *>::iterator it;
+            std::map<std::string,
+                std::map<uint16_t, CouchNotifier *> >::iterator it;
             for (it = instances.begin(); it != instances.end(); ++it) {
-                delete it->second;
+                std::map<uint16_t, CouchNotifier *> shard_map = it->second;
+                std::map<uint16_t, CouchNotifier *>::iterator ite;
+                for (ite = shard_map.begin(); ite != shard_map.end(); ++ite) {
+                    delete ite->second;
+                }
+                shard_map.clear();
             }
             instances.clear();
         }
     }
-    static CouchNotifier *create(EPStats &s, Configuration &c) {
+    static CouchNotifier *create(EPStats &s, Configuration &c,
+                                 uint16_t shardId) {
         LockHolder lh(initMutex);
         ++refCount;
         std::string bucketName = c.getCouchBucket();
-        if (instances.find(bucketName) == instances.end()) {
-            instances[bucketName] = new CouchNotifier(s, c);
+        if (instances.find(bucketName) != instances.end()) {
+            if (instances[bucketName].find(shardId) !=
+                    instances[bucketName].end()) {
+                return instances[bucketName][shardId];
+            } else {
+                instances[bucketName][shardId] = new CouchNotifier(s, c);
+            }
+        } else {
+            std::map<uint16_t, CouchNotifier *> temp;
+            temp[shardId] = new CouchNotifier(s, c);
+            instances[bucketName] = temp;
         }
-        return instances[bucketName];
+        return instances[bucketName][shardId];
     }
-    void flush(Callback<bool> &cb);
+    void flush(uint16_t vb, Callback<bool> &cb);
     void delVBucket(uint16_t vb, Callback<bool> &cb);
 
     void notify_update(const VBStateNotification &vbs,
@@ -277,7 +293,7 @@ private:
         }
     } commandStats[MAX_NUM_NOTIFIER_CMD];
 
-    Mutex mutex;
+    Mutex *mutexes;
     std::list<BinaryPacketHandler*> responseHandler;
     bool connected;
     bool inSelectBucket;
@@ -286,8 +302,10 @@ private:
     struct iovec sendIov[IOV_MAX];
     int numiovec;
 
+    uint16_t numShards;
+
     static Mutex initMutex;
-    static std::map<std::string, CouchNotifier *> instances;
+    static std::map<std::string, std::map<uint16_t, CouchNotifier *> >instances;
     static uint16_t refCount;
 };
 

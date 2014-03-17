@@ -620,7 +620,8 @@ private:
     EPStats &epStats;
     Configuration &configuration;
     const std::string dbname;
-    CouchNotifier *couchNotifier;
+    uint16_t numShards;
+    std::vector<CouchNotifier *> couchNotifiers;
     std::vector<uint64_t>dbFileRevMap;
     uint16_t numDbFiles;
     std::vector<CouchRequest *> pendingReqsQ;

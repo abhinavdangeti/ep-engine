@@ -189,8 +189,10 @@ private:
 };
 
 Mutex CouchNotifier::initMutex;
-std::map<std::string, CouchNotifier *> CouchNotifier::instances;
+std::map<std::string,
+    std::map<uint16_t, CouchNotifier *> >CouchNotifier::instances;
 uint16_t CouchNotifier::refCount = 0;
+
 /*
  * Implementation of the member functions in the CouchNotifier class
  */
@@ -202,11 +204,13 @@ CouchNotifier::CouchNotifier(EPStats &st, Configuration &config) :
     allowDataLoss(config.isAllowDataLossDuringShutdown()),
     configurationError(true), seqno(0),
     currentCommand(0xff), lastSentCommand(0xff), lastReceivedCommand(0xff),
-    connected(false), inSelectBucket(false)
+    connected(false), inSelectBucket(false),
+    numShards(config.getMaxNumShards())
 {
     memset(&sendMsg, 0, sizeof(sendMsg));
     sendMsg.msg_iov = sendIov;
 
+    mutexes = new Mutex[numShards];
     // Select the bucket (will be sent immediately when we connect)
     selectBucket();
 }
@@ -774,7 +778,7 @@ bool CouchNotifier::waitOnce()
 
 void CouchNotifier::delVBucket(uint16_t vb, Callback<bool> &cb) {
     protocol_binary_request_del_vbucket req;
-    LockHolder lh(mutex);
+    LockHolder lh(mutexes[vb % numShards]);
     // delete vbucket must wait for a response
     do {
         memset(req.bytes, 0, sizeof(req.bytes));
@@ -792,10 +796,10 @@ void CouchNotifier::delVBucket(uint16_t vb, Callback<bool> &cb) {
     } while (!waitOnce());
 }
 
-void CouchNotifier::flush(Callback<bool> &cb) {
+void CouchNotifier::flush(uint16_t shardId, Callback<bool> &cb) {
     protocol_binary_request_flush req;
     // flush must wait for a response
-    LockHolder lh(mutex);
+    LockHolder lh(mutexes[shardId]);
     do {
         memset(req.bytes, 0, sizeof(req.bytes));
         req.message.header.request.magic = PROTOCOL_BINARY_REQ;
@@ -843,7 +847,7 @@ void CouchNotifier::notify_update(const VBStateNotification &vbs,
                                   Callback<uint16_t> &cb)
 {
     protocol_binary_request_notify_vbucket_update req;
-    LockHolder lh(mutex);
+    LockHolder lh(mutexes[vbs.vbucket % numShards]);
     // notify_bucket must wait for a response
     do {
         memset(req.bytes, 0, sizeof(req.bytes));
