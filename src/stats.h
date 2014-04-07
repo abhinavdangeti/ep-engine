@@ -321,6 +321,8 @@ public:
     //! The longest wait time
     AtomicValue<hrtime_t> bgMaxWait;
 
+    Histogram<hrtime_t> end2endComp;
+
     //! Histogram of background wait times.
     Histogram<hrtime_t> bgWaitHisto;
 
@@ -535,6 +537,7 @@ public:
         alogRuns.store(0);
 
         pendingOpsHisto.reset();
+        end2endComp.reset();
         bgWaitHisto.reset();
         bgLoadHisto.reset();
         setWithMetaHisto.reset();

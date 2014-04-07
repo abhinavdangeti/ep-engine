@@ -487,7 +487,7 @@ public:
      * @param ck cookie used to notify connection of operation completion
      */
     ENGINE_ERROR_CODE compactDB(uint16_t vbid, compaction_ctx c,
-                                const void *ck);
+                                const void *ck, hrtime_t start);
 
     /**
      * Callback to do the compaction of a vbucket

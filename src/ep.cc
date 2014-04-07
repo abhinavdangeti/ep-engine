@@ -1040,14 +1040,15 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::deleteVBucket(uint16_t vbid,
 
 ENGINE_ERROR_CODE EventuallyPersistentStore::compactDB(uint16_t vbid,
                                                        compaction_ctx c,
-                                                       const void *cookie) {
+                                                       const void *cookie,
+                                                       hrtime_t start) {
     RCPtr<VBucket> vb = vbMap.getBucket(vbid);
     if (!vb) {
         return ENGINE_NOT_MY_VBUCKET;
     }
 
     ExTask task = new CompactVBucketTask(&engine, Priority::CompactorPriority,
-                                         vbid, c, cookie);
+                                         vbid, c, cookie, start);
 
     ExecutorPool::get()->schedule(task, WRITER_TASK_IDX);
 
