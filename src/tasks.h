@@ -225,9 +225,9 @@ class CompactVBucketTask : public GlobalTask {
 public:
     CompactVBucketTask(EventuallyPersistentEngine *e, const Priority &p,
                 uint16_t vbucket, compaction_ctx c, const void *ck,
-                bool completeBeforeShutdown = false) :
+                hrtime_t start, bool completeBeforeShutdown = false) :
                 GlobalTask(e, p, 0, completeBeforeShutdown),
-                           vbid(vbucket), compactCtx(c), cookie(ck){}
+                    vbid(vbucket), compactCtx(c), cookie(ck), st(start) {}
     bool run();
 
     std::string getDescription() {
@@ -240,6 +240,7 @@ private:
     uint16_t vbid;
     compaction_ctx compactCtx;
     const void* cookie;
+    hrtime_t st;
 };
 
 /**

@@ -527,8 +527,9 @@ public:
     }
 
     ENGINE_ERROR_CODE compactDB(uint16_t vbid, compaction_ctx c,
-                                const void *cookie = NULL) {
-        return epstore->compactDB(vbid, c, cookie);
+                                const void *cookie = NULL,
+                                hrtime_t start = gethrtime()) {
+        return epstore->compactDB(vbid, c, cookie, start);
     }
 
     bool resetVBucket(uint16_t vbid) {

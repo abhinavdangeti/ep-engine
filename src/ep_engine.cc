@@ -937,7 +937,7 @@ extern "C" {
         if (es == NULL) {
             ++stats.pendingCompactions;
             e->storeEngineSpecific(cookie, e);
-            err = e->compactDB(vbucket, compactreq, cookie);
+            err = e->compactDB(vbucket, compactreq, cookie, gethrtime());
         } else {
             e->storeEngineSpecific(cookie, NULL);
             err = ENGINE_SUCCESS;
@@ -3848,6 +3848,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::doAllFailoverLogStats(
 
 ENGINE_ERROR_CODE EventuallyPersistentEngine::doTimingStats(const void *cookie,
                                                            ADD_STAT add_stat) {
+    add_casted_stat("end2endComp", stats.end2endComp, add_stat, cookie);
     add_casted_stat("bg_wait", stats.bgWaitHisto, add_stat, cookie);
     add_casted_stat("bg_load", stats.bgLoadHisto, add_stat, cookie);
     add_casted_stat("set_with_meta", stats.setWithMetaHisto, add_stat, cookie);

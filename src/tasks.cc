@@ -87,7 +87,13 @@ bool VBDeleteTask::run() {
 }
 
 bool CompactVBucketTask::run() {
-    return engine->getEpStore()->compactVBucket(vbid, &compactCtx, cookie);
+    bool ret = engine->getEpStore()->compactVBucket(vbid, &compactCtx, cookie);
+    if (ret == false) {
+        //LOG(EXTENSION_LOG_WARNING, "Total Compaction time (including scheduling delay) for vbid: %d, => %llu",
+        //        vbid, (gethrtime() - st) / 1000);
+        engine->getEpStats().end2endComp.add((gethrtime() - st) / 1000);
+    }
+    return ret;
 }
 
 bool StatSnap::run() {
