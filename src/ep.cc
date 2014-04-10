@@ -969,9 +969,9 @@ bool EventuallyPersistentStore::completeVBucketDeletion(uint16_t vbid,
     if (!vb || vb->getState() == vbucket_state_dead ||
          vbMap.isBucketDeletion(vbid)) {
         lh.unlock();
-        uint16_t sid = vbMap.getShard(vbid)->getId();
-        KVShard *shard = vbMap.shards[sid];
-        LockHolder ls(shard->getWriteLock());
+        //uint16_t sid = vbMap.getShard(vbid)->getId();
+        //KVShard *shard = vbMap.shards[sid];
+        LockHolder ls(vb->getWLock());
         KVStore *rwUnderlying = getRWUnderlying(vbid);
         if (rwUnderlying->delVBucket(vbid, recreate)) {
             vbMap.setBucketDeletion(vbid, false);
