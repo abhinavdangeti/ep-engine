@@ -1047,15 +1047,21 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::compactDB(uint16_t vbid,
         return ENGINE_NOT_MY_VBUCKET;
     }
 
-    ExTask task = new CompactVBucketTask(&engine, Priority::CompactorPriority,
-                                         vbid, c, cookie, start);
+    int t = vbid;
+    for (int i = 0; i < 5; i++) {
+        ExTask task = new CompactVBucketTask(&engine, Priority::CompactorPriority,
+                t, c, cookie, start);
 
-    ExecutorPool::get()->schedule(task, WRITER_TASK_IDX);
+        ExecutorPool::get()->schedule(task, WRITER_TASK_IDX);
 
-    LOG(EXTENSION_LOG_DEBUG, "Scheduled compaction task %d on vbucket %d,"
-        "purge_before_ts = %lld, purge_before_seq = %lld, dropdeletes = %d",
-        task->getId(), vbid, c.purge_before_ts,
-        c.purge_before_seq, c.drop_deletes);
+        LOG(EXTENSION_LOG_DEBUG, "Scheduled compaction task %d on vbucket %d,"
+                "purge_before_ts = %lld, purge_before_seq = %lld, dropdeletes = %d",
+                task->getId(), vbid, c.purge_before_ts,
+                c.purge_before_seq, c.drop_deletes);
+
+        t += 100;
+        if (t >= 1024) { break; }
+    }
 
    return ENGINE_EWOULDBLOCK;
 }
