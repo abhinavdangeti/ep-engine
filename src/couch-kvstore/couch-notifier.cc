@@ -308,6 +308,9 @@ bool CouchNotifier::connect() {
     struct addrinfo *ai = ainfo;
     while (ai != NULL) {
         sock = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        struct sockaddr_in *temp = (struct sockaddr_in *)ai->ai_addr;
+        LOG(EXTENSION_LOG_WARNING, "OPENING CONNECTION @ port: %hu",
+                temp->sin_port);
 
         if (sock != -1) {
             if (::connect(sock, ai->ai_addr, ai->ai_addrlen) != -1 &&
