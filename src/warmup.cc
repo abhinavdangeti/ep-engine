@@ -423,7 +423,6 @@ void Warmup::initialize()
     store->getOneROUnderlying()->getPersistedStats(session_stats);
     store->getEPEngine().getTapConnMap().loadPrevSessionStats(session_stats);
 
-
     std::map<std::string, std::string>::const_iterator it =
         session_stats.find("ep_force_shutdown");
 
@@ -604,6 +603,12 @@ void Warmup::checkForAccessLog()
             accesslogs++;
         }
     }
+
+    /**
+     * In case of offline upgrade from pre3.0 to 3.0,
+     * access log loading would be skipped as the logPath
+     * of the accessLog changed from pre3.0 to 3.0.
+     */
     if (accesslogs == store->vbMap.shards.size()) {
         transition(WarmupState::LoadingAccessLog);
     } else {

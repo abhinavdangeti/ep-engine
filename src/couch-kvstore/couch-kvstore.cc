@@ -47,6 +47,8 @@
 #include "statwriter.h"
 #undef STATWRITER_NAMESPACE
 
+#include <JSON_checker.h>
+
 using namespace CouchbaseDirectoryUtilities;
 
 static const int MUTATION_FAILED = -1;
@@ -648,6 +650,32 @@ static int time_purge_hook(Db* d, DocInfo* info, void* ctx_p) {
     }
 
     if (info->rev_meta.size >= DEFAULT_META_LEN) {
+        if (info->rev_meta.size == DEFAULT_META_LEN) {
+            couchstore_error_t err;
+            Doc *doc = NULL;
+            err = couchstore_open_doc_with_docinfo(d, info,
+                                                   &doc,
+                                                   DECOMPRESS_DOC_BODIES);
+            if (err == COUCHSTORE_SUCCESS) {
+                const unsigned char* dat = (const unsigned char*)doc->data.buf;
+                size_t datlen = doc->data.size;
+                uint8_t datatype;
+                if (checkUTF8JSON(dat, datlen)) {
+                    datatype = PROTOCOL_BINARY_DATATYPE_JSON;
+                } else {
+                    datatype = PROTOCOL_BINARY_RAW_BYTES;
+                }
+                char *newMeta = (char *)realloc(info->rev_meta.buf, DEFAULT_META_LEN + 2);
+                if (newMeta != NULL) {
+                    info->rev_meta.buf = newMeta;
+                    info->rev_meta.size = DEFAULT_META_LEN + 2;
+
+                    *(info->rev_meta.buf + DEFAULT_META_LEN) = FLEX_META_CODE;
+                    *(info->rev_meta.buf + DEFAULT_META_LEN +
+                                                 FLEX_DATA_OFFSET) = datatype;
+                }
+            }
+        }
         uint32_t exptime;
         memcpy(&exptime, info->rev_meta.buf + 8, 4);
         exptime = ntohl(exptime);
@@ -1423,6 +1451,17 @@ couchstore_error_t CouchKVStore::fetchDoc(Db *db, DocInfo *docinfo,
                 cb_assert(doc && (doc->id.size <= UINT16_MAX));
                 size_t valuelen = doc->data.size;
                 void *valuePtr = doc->data.buf;
+
+                if (metadata.size == DEFAULT_META_LEN) {
+                    const unsigned char* val = (const unsigned char*)valuePtr;
+                    if (checkUTF8JSON(val, valuelen)) {
+                        *ext_meta = PROTOCOL_BINARY_DATATYPE_JSON;
+                    } else {
+                        *ext_meta = PROTOCOL_BINARY_RAW_BYTES;
+                    }
+                    ext_len = 1;
+                }
+
                 Item *it = new Item(docinfo->id.buf, (size_t)docinfo->id.size,
                                     itemFlags, (time_t)exptime, valuePtr, valuelen,
                                     ext_meta, ext_len, cas, docinfo->db_seq, vbId,
@@ -1500,6 +1539,21 @@ int CouchKVStore::recordDbDump(Db *db, DocInfo *docinfo, void *ctx)
             if (doc->data.size) {
                 valuelen = doc->data.size;
                 valuePtr = doc->data.buf;
+
+                /**
+                 * Set Datatype correctly if data is being
+                 * read from couch files where datatype is
+                 * not supported.
+                 */
+                if (metadata.size == DEFAULT_META_LEN) {
+                    const unsigned char* value = (const unsigned char*)valuePtr;
+                    if (checkUTF8JSON(value, valuelen)) {
+                        *ext_meta = PROTOCOL_BINARY_DATATYPE_JSON;
+                    } else {
+                        *ext_meta = PROTOCOL_BINARY_RAW_BYTES;
+                    }
+                    ext_len = 1;
+                }
             }
         } else {
             LOG(EXTENSION_LOG_WARNING,
