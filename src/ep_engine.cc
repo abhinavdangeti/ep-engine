@@ -1033,6 +1033,7 @@ extern "C" {
             {
                 if (h->getEngineSpecific(cookie) == NULL) {
                     uint64_t cas = ntohll(request->request.cas);
+                    LOG(EXTENSION_LOG_WARNING, "MYLOG: Increment session cas (OPCODE: %u) for cookie: %p",request->request.opcode,cookie);
                     if (!h->validateSessionCas(cas)) {
                         const std::string message("Invalid session token");
                         return sendResponse(response, NULL, 0, NULL, 0,
@@ -1060,6 +1061,7 @@ extern "C" {
                 BlockTimer timer(&stats.delVbucketCmdHisto);
                 rv = delVBucket(h, cookie, request, response);
                 if (rv != ENGINE_EWOULDBLOCK) {
+                    LOG(EXTENSION_LOG_WARNING, "MYLOG: Decrement (DEL_VBUCKET) for cookie: %p", (cookie));
                     h->decrementSessionCtr();
                     h->storeEngineSpecific(cookie, NULL);
                 }
@@ -1069,6 +1071,7 @@ extern "C" {
             {
                 BlockTimer timer(&stats.setVbucketCmdHisto);
                 rv = setVBucket(h, cookie, request, response);
+                LOG(EXTENSION_LOG_WARNING, "MYLOG: Decrement (SET_VBUCKET) for cookie: %p", (cookie));
                 h->decrementSessionCtr();
                 return rv;
             }
@@ -1089,6 +1092,7 @@ extern "C" {
             res = setParam(h,
                   reinterpret_cast<protocol_binary_request_set_param*>(request),
                             &msg, &msg_size);
+            LOG(EXTENSION_LOG_WARNING, "MYLOG: Decrement (SET_PARAM) for cookie: %p", (cookie));
             h->decrementSessionCtr();
             break;
         case PROTOCOL_BINARY_CMD_EVICT_KEY:
@@ -1109,6 +1113,7 @@ extern "C" {
         case PROTOCOL_BINARY_CMD_DEREGISTER_TAP_CLIENT:
             {
                 rv = h->deregisterTapClient(cookie, request, response);
+                LOG(EXTENSION_LOG_WARNING, "MYLOG: Decrement (DEREGISTER_TAP) for cookie: %p", (cookie));
                 h->decrementSessionCtr();
                 return rv;
             }
@@ -1120,6 +1125,7 @@ extern "C" {
         case PROTOCOL_BINARY_CMD_CHANGE_VB_FILTER:
             {
                 rv = h->changeTapVBFilter(cookie, request, response);
+                LOG(EXTENSION_LOG_WARNING, "MYLOG: Decrement (CHANGE_TAP_FILTER) for cookie: %p", (cookie));
                 h->decrementSessionCtr();
                 return rv;
             }
@@ -1184,6 +1190,7 @@ extern "C" {
                 rv = h->setClusterConfig(cookie,
                  reinterpret_cast<protocol_binary_request_set_cluster_config*>
                                                           (request), response);
+                LOG(EXTENSION_LOG_WARNING, "MYLOG: Decrement (SET_CLU_CONFIG) for cookie: %p", (cookie));
                 h->decrementSessionCtr();
                 return rv;
             }
@@ -1197,6 +1204,7 @@ extern "C" {
                                (protocol_binary_request_compact_db*)(request),
                                response);
                 if (rv != ENGINE_EWOULDBLOCK) {
+                    LOG(EXTENSION_LOG_WARNING, "MYLOG: Decrement (COMPACT_DB) for cookie: %p", (cookie));
                     h->decrementSessionCtr();
                     h->storeEngineSpecific(cookie, NULL);
                 }
@@ -5573,6 +5581,11 @@ void EventuallyPersistentEngine::handleDisconnect(const void *cookie) {
             case PROTOCOL_BINARY_CMD_DEL_VBUCKET:
             case PROTOCOL_BINARY_CMD_COMPACT_DB:
                 {
+                    if (opcode == PROTOCOL_BINARY_CMD_DEL_VBUCKET) {
+                        LOG(EXTENSION_LOG_WARNING, "MYLOG: Decrement (DISCON: DEL) for cookie: %p", (cookie));
+                    } else if (opcode == PROTOCOL_BINARY_CMD_COMPACT_DB) {
+                        LOG(EXTENSION_LOG_WARNING, "MYLOG: Decrement (DISCON: COMP) for cookie: %p", (cookie));
+                    }
                     decrementSessionCtr();
                     break;
                 }
