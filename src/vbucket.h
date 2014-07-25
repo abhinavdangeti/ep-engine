@@ -180,6 +180,7 @@ public:
         initialState(initState),
         stats(st),
         purge_seqno(purgeSeqno),
+        stateChanged(true),
         numHpChks(0),
         shard(kvshard)
     {
@@ -351,6 +352,15 @@ public:
         return true;
     }
 
+    void setStateChange(bool to) {
+        bool inverse = !to;
+        stateChanged.compare_exchange_strong(inverse, to);
+    }
+
+    bool hasStateChanged() {
+        return stateChanged;
+    }
+
     static const vbucket_state_t ACTIVE;
     static const vbucket_state_t REPLICA;
     static const vbucket_state_t PENDING;
@@ -403,6 +413,7 @@ private:
     hrtime_t                 pendingOpsStart;
     EPStats                 &stats;
     uint64_t                 purge_seqno;
+    AtomicValue<bool>        stateChanged;
 
     Mutex pendingBGFetchesLock;
     vb_bgfetch_queue_t pendingBGFetches;

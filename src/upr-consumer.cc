@@ -634,6 +634,7 @@ void UprConsumer::streamAccepted(uint32_t opaque, uint16_t status, uint8_t* body
             if (status == ENGINE_SUCCESS) {
                 RCPtr<VBucket> vb = engine_.getVBucket(vbucket);
                 vb->failovers->replaceFailoverLog(body, bodylen);
+                vb->setStateChange(true);
                 EventuallyPersistentStore* st = engine_.getEpStore();
                 st->scheduleVBSnapshot(Priority::VBucketPersistHighPriority,
                                 st->getVBuckets().getShard(vbucket)->getId());

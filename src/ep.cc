@@ -895,7 +895,8 @@ void EventuallyPersistentStore::snapshotVBuckets(const Priority &priority,
         VBucketStateVisitor(VBucketMap &vb_map, uint16_t sid)
             : vbuckets(vb_map), shardId(sid) { }
         bool visitBucket(RCPtr<VBucket> &vb) {
-            if (vbuckets.getShard(vb->getId())->getId() == shardId) {
+            if (vbuckets.getShard(vb->getId())->getId() == shardId &&
+                    vb->hasStateChanged()) {
                 vbucket_state vb_state;
                 vb_state.state = vb->getState();
                 vb_state.checkpointId = vbuckets.getPersistenceCheckpointId(
@@ -941,6 +942,11 @@ void EventuallyPersistentStore::snapshotVBuckets(const Priority &priority,
                     "VBucket snapshot task failed!!! Rescheduling");
             success = false;
             break;
+        } else {
+            RCPtr<VBucket> vb = vbMap.getBucket(iter->first);
+            if (vb) {
+                vb->setStateChange(false);
+            }
         }
 
         if (priority == Priority::VBucketPersistHighPriority) {
@@ -985,6 +991,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::setVBucketState(uint16_t vbid,
             ExTask notifyTask = new PendingOpsNotification(engine, vb);
             ExecutorPool::get()->schedule(notifyTask, NONIO_TASK_IDX);
         }
+        vb->setStateChange(true);
         scheduleVBSnapshot(Priority::VBucketPersistLowPriority, shardId);
     } else {
         FailoverTable* ft = new FailoverTable(engine.getMaxFailoverEntries());
@@ -1002,6 +1009,8 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::setVBucketState(uint16_t vbid,
         vbMap.setPersistenceSeqno(vbid, 0);
         vbMap.setBucketCreation(vbid, true);
         lh.unlock();
+        // No need to set the stateChanged flag for the vbucket here,
+        // as its set to true when we create a vbucket
         scheduleVBSnapshot(Priority::VBucketPersistHighPriority, shardId);
     }
     return ENGINE_SUCCESS;
@@ -1118,6 +1127,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::deleteVBucket(uint16_t vbid,
     vbMap.removeBucket(vbid);
     lh.unlock();
     scheduleVBDeletion(vb, c);
+    vb->setStateChange(true);
     scheduleVBSnapshot(Priority::VBucketPersistHighPriority,
                        vbMap.getShard(vbid)->getId(), true);
     if (c) {
@@ -2656,6 +2666,7 @@ int EventuallyPersistentStore::flushVBucket(uint16_t vbid) {
     }
 
     if (schedule_vb_snapshot || snapshotVBState) {
+        vb->setStateChange(true);
         scheduleVBSnapshot(Priority::VBucketPersistHighPriority,
                            shard->getId());
     }

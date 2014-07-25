@@ -474,6 +474,8 @@ void Warmup::createVBuckets(uint16_t shardId) {
             }
 
             store->vbMap.addBucket(vb);
+        } else {
+            vb->setStateChange(true);
         }
 
         // Pass the open checkpoint Id for each vbucket.

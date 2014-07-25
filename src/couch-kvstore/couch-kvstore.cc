@@ -906,25 +906,17 @@ bool CouchKVStore::snapshotVBucket(uint16_t vbucketId, vbucket_state vbstate,
                                     Callback<kvstats_ctx> *cb)
 {
     cb_assert(!isReadOnly());
-    bool success = true;
 
-    bool notify = false;
     vbucket_map_t::iterator it = cachedVBStates.find(vbucketId);
     uint32_t vb_change_type = VB_NO_CHANGE;
     if (it != cachedVBStates.end()) {
         if (it->second.state != vbstate.state) {
             vb_change_type |= VB_STATE_CHANGED;
-            notify = true;
         }
         if (it->second.checkpointId != vbstate.checkpointId) {
             vb_change_type |= VB_CHECKPOINT_CHANGED;
-            notify = true;
         }
 
-        if (it->second.failovers.compare(vbstate.failovers) == 0 &&
-                vb_change_type == VB_NO_CHANGE) {
-            return true; // no changes
-        }
         it->second.state = vbstate.state;
         it->second.checkpointId = vbstate.checkpointId;
         it->second.failovers = vbstate.failovers;
@@ -934,16 +926,13 @@ bool CouchKVStore::snapshotVBucket(uint16_t vbucketId, vbucket_state vbstate,
         cb_assert(false);
     }
 
-    success = setVBucketState(vbucketId, vbstate, vb_change_type, cb,
-            notify);
-
-    if (!success) {
+    if (!(setVBucketState(vbucketId, vbstate, vb_change_type, cb, true))) {
         LOG(EXTENSION_LOG_WARNING,
                 "Warning: failed to set new state, %s, for vbucket %d\n",
                 VBucket::toString(vbstate.state), vbucketId);
         return false;
     }
-    return success;
+    return true;
 }
 
 bool CouchKVStore::snapshotStats(const std::map<std::string, std::string> &stats)
