@@ -1056,7 +1056,27 @@ extern "C" {
             case PROTOCOL_BINARY_CMD_SET_CLUSTER_CONFIG:
             case PROTOCOL_BINARY_CMD_COMPACT_DB:
             {
+                bool set = false;
+                bool comp = false;
+                if (request->request.opcode == PROTOCOL_BINARY_CMD_DEL_VBUCKET) {
+                    LOG(EXTENSION_LOG_WARNING, "DelReq: cookie: %p, vb: %lu", cookie,
+                                                            ntohs(request->request.vbucket));
+                    set = true;
+                }
+                if (request->request.opcode == PROTOCOL_BINARY_CMD_COMPACT_DB) {
+                    LOG(EXTENSION_LOG_WARNING, "CompReq: cookie: %p, vb: %lu", cookie,
+                                                            ntohs(request->request.vbucket));
+                    comp = true;
+                }
                 if (h->getEngineSpecific(cookie) == NULL) {
+                    if (set) {
+                        LOG(EXTENSION_LOG_WARNING, "DelReq: cookie: %p, engineSpec NULL, increment"
+                                                    " session counter", cookie);
+                    }
+                    if (comp) {
+                        LOG(EXTENSION_LOG_WARNING, "CompReq: cookie: %p, engineSpec NULL, increment"
+                                                    " session counter", cookie);
+                    }
                     uint64_t cas = ntohll(request->request.cas);
                     if (!h->validateSessionCas(cas)) {
                         const std::string message("Invalid session token");
@@ -1065,6 +1085,13 @@ extern "C" {
                                             PROTOCOL_BINARY_RAW_BYTES,
                                             PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS,
                                             cas, cookie);
+                    }
+                } else {
+                    if (set) {
+                        LOG(EXTENSION_LOG_WARNING, "DelReq: cookie: %p, engineSpec NOT NULL", cookie);
+                    }
+                    if (comp) {
+                        LOG(EXTENSION_LOG_WARNING, "CompReq: cookie: %p, engineSpec NOT NULL", cookie);
                     }
                 }
                 break;
@@ -1085,6 +1112,8 @@ extern "C" {
                 BlockTimer timer(&stats.delVbucketCmdHisto);
                 rv = delVBucket(h, cookie, request, response);
                 if (rv != ENGINE_EWOULDBLOCK) {
+                    LOG(EXTENSION_LOG_WARNING, "DelReq: cookie: %p, vbucket: %lu, Decrement sess ctr",
+                                            cookie, ntohs(request->request.vbucket));
                     h->decrementSessionCtr();
                     h->storeEngineSpecific(cookie, NULL);
                 }
@@ -1222,6 +1251,8 @@ extern "C" {
                                (protocol_binary_request_compact_db*)(request),
                                response);
                 if (rv != ENGINE_EWOULDBLOCK) {
+                    LOG(EXTENSION_LOG_WARNING, "CompReq: cookie: %p, vbucket: %lu, Decrement sess ctr",
+                            cookie, ntohs(request->request.vbucket));
                     h->decrementSessionCtr();
                     h->storeEngineSpecific(cookie, NULL);
                 }
@@ -5628,6 +5659,13 @@ void EventuallyPersistentEngine::handleDisconnect(const void *cookie) {
             case PROTOCOL_BINARY_CMD_DEL_VBUCKET:
             case PROTOCOL_BINARY_CMD_COMPACT_DB:
                 {
+                    if (opcode == PROTOCOL_BINARY_CMD_DEL_VBUCKET) {
+                        LOG(EXTENSION_LOG_WARNING, "DelReq: cookie: %p,"
+                                " handle disconnect, decrements sess ctr", cookie);
+                    } else {
+                        LOG(EXTENSION_LOG_WARNING, "CompReq: cookie: %p,"
+                                " handle disconnect, decrements sess ctr", cookie);
+                    }
                     decrementSessionCtr();
                     storeEngineSpecific(cookie, NULL);
                     break;
