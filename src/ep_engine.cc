@@ -1085,8 +1085,13 @@ extern "C" {
                 BlockTimer timer(&stats.delVbucketCmdHisto);
                 rv = delVBucket(h, cookie, request, response);
                 if (rv != ENGINE_EWOULDBLOCK) {
+                    LOG(EXTENSION_LOG_WARNING, "DEL_VBUCKET::Exit: vbucket: %u, cookie: %p",
+                            ntohs(request->request.vbucket), cookie);
                     h->decrementSessionCtr();
                     h->storeEngineSpecific(cookie, NULL);
+                } else {
+                    LOG(EXTENSION_LOG_WARNING, "DEL_VBUCKET::Entry: vbucket: %u, cookie: %p",
+                            ntohs(request->request.vbucket), cookie);
                 }
                 return rv;
             }
@@ -1153,6 +1158,15 @@ extern "C" {
         case PROTOCOL_BINARY_CMD_CHECKPOINT_PERSISTENCE:
             {
                 rv = h->handleCheckpointCmds(cookie, request, response);
+                if (request->request.opcode == PROTOCOL_BINARY_CMD_CHECKPOINT_PERSISTENCE) {
+                    if (rv != ENGINE_EWOULDBLOCK) {
+                        LOG(EXTENSION_LOG_WARNING, "CMD_CHECKPOINT_PERSISTENCE::Exit: vbucket: %u, cookie: %p",
+                                ntohs(request->request.vbucket), cookie);
+                    } else if (rv == ENGINE_SUCCESS) {
+                        LOG(EXTENSION_LOG_WARNING, "CMD_CHECKPOINT_PERSISTENCE::Entry: vbucket: %u, cookie: %p",
+                                ntohs(request->request.vbucket), cookie);
+                    }
+                }
                 return rv;
             }
         case PROTOCOL_BINARY_CMD_SEQNO_PERSISTENCE:
@@ -1222,8 +1236,13 @@ extern "C" {
                                (protocol_binary_request_compact_db*)(request),
                                response);
                 if (rv != ENGINE_EWOULDBLOCK) {
+                    LOG(EXTENSION_LOG_WARNING, "COMPACT_DB::Exit: vbucket: %u, cookie: %p",
+                            ntohs(request->request.vbucket), cookie);
                     h->decrementSessionCtr();
                     h->storeEngineSpecific(cookie, NULL);
+                } else {
+                    LOG(EXTENSION_LOG_WARNING, "COMPACT_DB::Entry: vbucket: %u, cookie: %p",
+                            ntohs(request->request.vbucket), cookie);
                 }
                 return rv;
             }
