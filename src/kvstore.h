@@ -235,7 +235,7 @@ public:
     /**
      * Delete a given vbucket database.
      */
-    virtual bool delVBucket(uint16_t vbucket, bool recreate = false) = 0;
+    virtual void delVBucket(uint16_t vbucket, bool recreate = false) = 0;
 
     /**
      * Get a list of all persisted vbuckets (with their states).

@@ -27,7 +27,6 @@
 
 #include "configuration.h"
 #include "couch-kvstore/couch-fs-stats.h"
-#include "couch-kvstore/couch-notifier.h"
 #include "histo.h"
 #include "item.h"
 #include "kvstore.h"
@@ -368,9 +367,8 @@ public:
      *
      * @param vbucket vbucket id
      * @param recreate true if we need to create an empty vbucket after deletion
-     * @return true if the vbucket deletion is completed successfully.
      */
-    bool delVBucket(uint16_t vbucket, bool recreate);
+    void delVBucket(uint16_t vbucket, bool recreate);
 
     /**
      * Retrieve the list of persisted vbucket states
@@ -556,11 +554,22 @@ public:
 
     uint64_t getLastPersistedSeqno(uint16_t vbid);
 
-   /**
+    /**
      * Get all_docs API, to return the list of all keys in the store
      */
     ENGINE_ERROR_CODE getAllKeys(uint16_t vbid, std::string &start_key,
                                  uint32_t count, AllKeysCB *cb);
+
+    /**
+     * Unlink selected couch file, which will be removed by the OS,
+     * once all its references close.
+     */
+    void unlinkCouchFile(uint16_t vbucket, uint64_t fRev) {
+        char fname[PATH_MAX];
+        snprintf(fname, sizeof(fname), "%s/%d.couch.%llu",
+                 configuration.getDbname().c_str(), vbucket, fRev);
+        unlink(fname);
+    }
 
 protected:
     void loadDB(shared_ptr<Callback<GetValue> > cb,
@@ -570,11 +579,10 @@ protected:
                 uint64_t startSeqno,
                 couchstore_docinfos_options options=COUCHSTORE_NO_OPTIONS);
     bool setVBucketState(uint16_t vbucketId, vbucket_state &vbstate,
-                         uint32_t vb_change_type, Callback<kvstats_ctx> *cb,
-                         bool notify = true);
+                         Callback<kvstats_ctx> *cb);
     bool resetVBucket(uint16_t vbucketId, vbucket_state &vbstate) {
         cachedDocCount[vbucketId] = 0;
-        return setVBucketState(vbucketId, vbstate, VB_STATE_CHANGED, NULL);
+        return setVBucketState(vbucketId, vbstate, NULL);
     }
 
     template <typename T>
@@ -582,17 +590,6 @@ protected:
                  ADD_STAT add_stat, const void *c);
 
 private:
-    /**
-     * Notify the result of Compaction to Mccouch
-     *
-     * @param vbid   - the vbucket id of the bucket where compaction was done
-     * @param rev    - the new file revision of the vbucket
-     * @param result - the result of the compaction attempt
-     * @param header_pos - new header position of the file
-     * @return true if mccouch was notified successfully, false otherwise
-     */
-    bool notifyCompaction(const uint16_t vbid, uint64_t new_rev,
-                          uint32_t result, uint64_t header_pos);
 
     void operator=(const CouchKVStore &from);
 
@@ -638,7 +635,6 @@ private:
     EPStats &epStats;
     Configuration &configuration;
     const std::string dbname;
-    CouchNotifier *couchNotifier;
     std::vector<uint64_t>dbFileRevMap;
     uint16_t numDbFiles;
     std::vector<CouchRequest *> pendingReqsQ;

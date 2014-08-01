@@ -465,9 +465,6 @@ extern "C" {
                 validate(vsize, static_cast<uint64_t>(0),
                          std::numeric_limits<uint64_t>::max());
                 e->getConfiguration().setExpPagerStime((size_t)vsize);
-            } else if (strcmp(keyz, "couch_response_timeout") == 0) {
-                checkNumeric(valz);
-                e->getConfiguration().setCouchResponseTimeout(v);
             } else if (strcmp(keyz, "alog_sleep_time") == 0) {
                 checkNumeric(valz);
                 e->getConfiguration().setAlogSleepTime(v);

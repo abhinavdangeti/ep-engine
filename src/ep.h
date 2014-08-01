@@ -483,7 +483,7 @@ public:
      * @param cookie The connection that requested the deletion
      * @param recreate Whether or not to recreate the VBucket after deletion
      */
-    bool completeVBucketDeletion(uint16_t vbid, const void* cookie,
+    void completeVBucketDeletion(uint16_t vbid, const void* cookie,
                                  bool recreate);
 
     /**

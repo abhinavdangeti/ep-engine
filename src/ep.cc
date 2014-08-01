@@ -1144,45 +1144,32 @@ void EventuallyPersistentStore::scheduleVBStatePersist(const Priority &priority,
     }
 }
 
-bool EventuallyPersistentStore::completeVBucketDeletion(uint16_t vbid,
+void EventuallyPersistentStore::completeVBucketDeletion(uint16_t vbid,
                                                         const void* cookie,
                                                         bool recreate) {
     LockHolder lh(vbsetMutex);
 
     hrtime_t start_time(gethrtime());
-    bool success = true;
     RCPtr<VBucket> vb = vbMap.getBucket(vbid);
     if (!vb || vb->getState() == vbucket_state_dead ||
          vbMap.isBucketDeletion(vbid)) {
         lh.unlock();
         LockHolder vlh(vb_mutexes[vbid]);
-        KVStore *rwUnderlying = getRWUnderlying(vbid);
-        if (rwUnderlying->delVBucket(vbid, recreate)) {
-            vbMap.setBucketDeletion(vbid, false);
-            vbMap.setPersistenceSeqno(vbid, 0);
-            ++stats.vbucketDeletions;
-            LOG(EXTENSION_LOG_INFO, "VBucket %d deletion completed", vbid);
-        } else {
-            ++stats.vbucketDeletionFail;
-            success = false;
-            LOG(EXTENSION_LOG_WARNING, "VBucket %d deletion failed!", vbid);
-        }
+        getRWUnderlying(vbid)->delVBucket(vbid, recreate);
+        vbMap.setBucketDeletion(vbid, false);
+        vbMap.setPersistenceSeqno(vbid, 0);
+        ++stats.vbucketDeletions;
     }
 
-    if (success) {
-        hrtime_t spent(gethrtime() - start_time);
-        hrtime_t wall_time = spent / 1000;
-        BlockTimer::log(spent, "disk_vb_del", stats.timingLog);
-        stats.diskVBDelHisto.add(wall_time);
-        atomic_setIfBigger(stats.vbucketDelMaxWalltime, wall_time);
-        stats.vbucketDelTotWalltime.fetch_add(wall_time);
-        if (cookie) {
-            engine.notifyIOComplete(cookie, ENGINE_SUCCESS);
-        }
-        return true;
+    hrtime_t spent(gethrtime() - start_time);
+    hrtime_t wall_time = spent / 1000;
+    BlockTimer::log(spent, "disk_vb_del", stats.timingLog);
+    stats.diskVBDelHisto.add(wall_time);
+    atomic_setIfBigger(stats.vbucketDelMaxWalltime, wall_time);
+    stats.vbucketDelTotWalltime.fetch_add(wall_time);
+    if (cookie) {
+        engine.notifyIOComplete(cookie, ENGINE_SUCCESS);
     }
-
-    return false;
 }
 
 void EventuallyPersistentStore::scheduleVBDeletion(RCPtr<VBucket> &vb,
