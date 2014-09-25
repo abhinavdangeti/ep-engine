@@ -26,6 +26,7 @@
 #include <utility>
 #include <vector>
 
+#include "bloomfilter.h"
 #include "configuration.h"
 #include "stats.h"
 #include "tasks.h"

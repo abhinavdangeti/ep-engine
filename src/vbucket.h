@@ -131,6 +131,7 @@ private:
 class EventuallyPersistentEngine;
 class FailoverTable;
 class KVShard;
+class BloomFilter;
 
 // First bool is true if an item exists in VB DB file.
 // second bool is true if the operation is SET (i.e., insert or update).
@@ -158,6 +159,7 @@ public:
             CheckpointConfig &chkConfig, KVShard *kvshard,
             int64_t lastSeqno, uint64_t lastSnapStart,
             uint64_t lastSnapEnd, FailoverTable *table,
+            BloomFilter *filter,
             vbucket_state_t initState = vbucket_state_dead,
             uint64_t chkId = 1, uint64_t purgeSeqno = 0) :
         ht(st),
@@ -185,7 +187,8 @@ public:
         cur_snapshot_start(lastSnapStart),
         cur_snapshot_end(lastSnapEnd),
         numHpChks(0),
-        shard(kvshard)
+        shard(kvshard),
+        bFilter(filter)
     {
         backfill.isBackfillPhase = false;
         pendingOpsStart = 0;
@@ -406,6 +409,10 @@ public:
         return shard;
     }
 
+    BloomFilter *filter(void) {
+        return bFilter;
+    }
+
     std::queue<queued_item> rejectQueue;
     FailoverTable *failovers;
 
@@ -454,6 +461,7 @@ private:
     std::list<HighPriorityVBEntry> hpChks;
     volatile size_t numHpChks; // size of list hpChks (to avoid MB-9434)
     KVShard *shard;
+    BloomFilter *bFilter;
 
     static size_t chkFlushTimeout;
 

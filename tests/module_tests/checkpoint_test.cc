@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "assert.h"
+#include "bloomfilter.h"
 #include "checkpoint.h"
 #include "stats.h"
 #include "vbucket.h"
@@ -170,7 +171,8 @@ void basic_chk_test() {
     HashTable::setDefaultNumBuckets(5);
     HashTable::setDefaultNumLocks(1);
     RCPtr<VBucket> vbucket(new VBucket(0, vbucket_state_active, global_stats,
-                                       checkpoint_config, NULL, 0, 0, 0, NULL));
+                                       checkpoint_config, NULL, 0, 0, 0, NULL,
+                                       new BloomFilter(10000, 0.01)));
 
     CheckpointManager *checkpoint_manager = new CheckpointManager(global_stats, 0,
                                                                   checkpoint_config, 1);
@@ -269,7 +271,8 @@ void basic_chk_test() {
 
 void test_reset_checkpoint_id() {
     RCPtr<VBucket> vbucket(new VBucket(0, vbucket_state_active, global_stats,
-                                       checkpoint_config, NULL, 0, 0, 0, NULL));
+                                       checkpoint_config, NULL, 0, 0, 0, NULL,
+                                       new BloomFilter(10000, 0.01)));
     CheckpointManager *manager =
         new CheckpointManager(global_stats, 0, checkpoint_config, 1);
 

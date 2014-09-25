@@ -461,12 +461,16 @@ void Warmup::createVBuckets(uint16_t shardId) {
             } else {
                 table = new FailoverTable(vbs.failovers, maxEntries);
             }
+            Configuration &config = store->getEPEngine().getConfiguration();
             vb.reset(new VBucket(vbid, vbs.state,
                                  store->getEPEngine().getEpStats(),
                                  store->getEPEngine().getCheckpointConfig(),
                                  store->getVBuckets().getShard(vbid),
                                  vbs.highSeqno, vbs.lastSnapStart,
-                                 vbs.lastSnapEnd, table, vbs.state, 1,
+                                 vbs.lastSnapEnd, table,
+                                 new BloomFilter(config.getBfilterKeyCount(),
+                                                 config.getBfilterFpProb()),
+                                 vbs.state, 1,
                                  vbs.purgeSeqno));
 
             if(vbs.state == vbucket_state_active && !cleanShutdown) {
