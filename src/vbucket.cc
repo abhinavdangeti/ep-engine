@@ -138,6 +138,8 @@ VBucket::~VBucket() {
     pendingBGFetches.clear();
     delete failovers;
 
+    clearFilter();
+
     stats.memOverhead.fetch_sub(sizeof(VBucket) + ht.memorySize() + sizeof(CheckpointManager));
     cb_assert(stats.memOverhead.load() < GIGANTOR);
 
@@ -414,6 +416,30 @@ size_t VBucket::getNumNonResidentItems(item_eviction_policy_t policy) {
     }
 }
 
+BloomFilter* VBucket::getFilter(void) {
+    return bFilter;
+}
+
+void VBucket::initFilter(size_t key_count, double probability,
+                         bfilter_status_t status) {
+    if (bFilter) {
+        bFilter->replace(key_count, probability, status);
+    } else {
+        bFilter = new BloomFilter(key_count, probability, status);
+    }
+}
+
+void VBucket::addToFilter(const char *key, size_t keylen) {
+    if (bFilter) {
+        bFilter->addKey(key, keylen);
+    }
+}
+
+void VBucket::clearFilter() {
+    delete bFilter;
+    bFilter = NULL;
+}
+
 void VBucket::addStats(bool details, ADD_STAT add_stat, const void *c,
                        item_eviction_policy_t policy) {
     addStat(NULL, toString(state), add_stat, c);
@@ -443,5 +469,8 @@ void VBucket::addStats(bool details, ADD_STAT add_stat, const void *c,
         addStat("high_seqno", getHighSeqno(), add_stat, c);
         addStat("uuid", failovers->getLatestEntry().vb_uuid, add_stat, c);
         addStat("purge_seqno", getPurgeSeqno(), add_stat, c);
+        if (bFilter) {
+            addStat("bloom_filter", bFilter->getStatusString().data(), add_stat, c);
+        }
     }
 }

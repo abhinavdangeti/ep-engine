@@ -75,6 +75,16 @@
                 }
             }
         },
+        "bfilter_key_count": {
+            "default": "10000",
+            "desr": "Estimated key count that the bloom filter will contain",
+            "type": "size_t"
+        },
+        "bfilter_fp_prob": {
+            "default": "0.01",
+            "desr": "Allowed probability for false positives",
+            "type": "float"
+        },
         "chk_max_items": {
             "default": "500",
             "type": "size_t"

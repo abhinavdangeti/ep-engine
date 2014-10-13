@@ -30,6 +30,7 @@
 
 #include "atomic.h"
 #include "bgfetcher.h"
+#include "bloomfilter.h"
 #include "checkpoint.h"
 #include "common.h"
 #include "stored-value.h"
@@ -185,7 +186,8 @@ public:
         cur_snapshot_start(lastSnapStart),
         cur_snapshot_end(lastSnapEnd),
         numHpChks(0),
-        shard(kvshard)
+        shard(kvshard),
+        bFilter(NULL)
     {
         backfill.isBackfillPhase = false;
         pendingOpsStart = 0;
@@ -364,6 +366,15 @@ public:
     size_t getHighPriorityChkSize();
     static size_t getCheckpointFlushTimeout();
 
+    /**
+     * BloomFilter operations for vbucket
+     */
+    BloomFilter* getFilter(void);
+    void initFilter(size_t key_count, double probability,
+                    bfilter_status_t status);
+    void addToFilter(const char *key, size_t keylen);
+    void clearFilter();
+
     void addStats(bool details, ADD_STAT add_stat, const void *c,
                   item_eviction_policy_t policy);
 
@@ -454,6 +465,7 @@ private:
     std::list<HighPriorityVBEntry> hpChks;
     volatile size_t numHpChks; // size of list hpChks (to avoid MB-9434)
     KVShard *shard;
+    BloomFilter *bFilter;
 
     static size_t chkFlushTimeout;
 
