@@ -416,6 +416,19 @@ size_t VBucket::getNumNonResidentItems(item_eviction_policy_t policy) {
     }
 }
 
+bool VBucket::isResidentRatioUnderThreshold(float threshold,
+                                            item_eviction_policy_t policy) {
+    cb_assert(policy == FULL_EVICTION);
+    size_t num_items = getNumItems(policy);
+    size_t num_non_resident_items = getNumNonResidentItems(policy);
+    if (threshold >= ((float)(num_items - num_non_resident_items) /
+                                                                num_items)) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
 BloomFilter* VBucket::getFilter(void) {
     return bFilter;
 }

@@ -556,6 +556,10 @@ public:
                                 uint64_t cas,
                                 rel_time_t currentTime);
 
+    StoredValue *fetchValidValue(RCPtr<VBucket> &vb, const std::string &key,
+                                 int bucket_num, bool wantsDeleted=false,
+                                 bool trackReference=true,
+                                 bool queueExpired=true);
 
     KVStore* getRWUnderlying(uint16_t vbId) {
         return vbMap.getShard(vbId)->getRWUnderlying();
@@ -791,10 +795,6 @@ private:
     void flushOneDeleteAll(void);
     PersistenceCallback* flushOneDelOrSet(const queued_item &qi,
                                           RCPtr<VBucket> &vb);
-
-    StoredValue *fetchValidValue(RCPtr<VBucket> &vb, const std::string &key,
-                                 int bucket_num, bool wantsDeleted=false,
-                                 bool trackReference=true, bool queueExpired=true);
 
     GetValue getInternal(const std::string &key, uint16_t vbucket,
                          const void *cookie, bool queueBG,

@@ -95,6 +95,51 @@ void RollbackCB::callback(GetValue &val) {
     delete itm;
 }
 
+void BfilterCB::addKeyToFilter(const char *key, size_t keylen, bool isDeleted) {
+    cb_assert(store);
+    Configuration &config = store->getEPEngine().getConfiguration();
+    if (config.isBfilterEnabled()) {
+        RCPtr<VBucket> vb = store->getVBucket(vbucketId);
+        if (vb) {
+            if (store->getItemEvictionPolicy() == VALUE_ONLY) {
+                /**
+                 * VALUE-ONLY EVICTION POLICY
+                 * Consider deleted items only.
+                 */
+                if (isDeleted) {
+                    vb->addToFilter(key, keylen);
+                }
+            } else {
+                /**
+                 * FULL EVICTION POLICY
+                 * If vbucket's resident ratio is found to be greater than
+                 * the resident ratio threshold, consider only deleted and
+                 * non-resident items, otherwise consider all items.
+                 */
+                if (residentRatioLessThanThreshold) {
+                    vb->addToFilter(key, keylen);
+                } else {
+                    if (isDeleted) {
+                        vb->addToFilter(key, keylen);
+                    } else {
+                        int bucket_num(0);
+                        std::string key_(key, keylen);
+                        LockHolder lh = vb->ht.getLockedBucket(key_,
+                                                               &bucket_num);
+                        StoredValue *v = store->fetchValidValue(vb, key_,
+                                                                bucket_num,
+                                                                false);
+                        if (v == NULL) {
+                            lh.unlock();
+                            vb->addToFilter(key, keylen);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 void AllKeysCB::addtoAllKeys(uint16_t len, char *buf) {
     if (length + len + sizeof(uint16_t) > buffersize) {
         buffersize *= 2;
