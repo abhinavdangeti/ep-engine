@@ -374,7 +374,8 @@ public:
     BloomFilter* getFilter(void);
     void initFilter(size_t key_count, double probability,
                     bfilter_status_t status);
-    void addToFilter(const char *key, size_t keylen);
+    void addToFilter(const std::string &key);
+    bool maybeKeyExistsInFilter(const std::string &key);
     void clearFilter();
 
     // Applicable only for FULL EVICTION POLICY

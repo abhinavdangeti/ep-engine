@@ -204,6 +204,15 @@ private:
     void doEviction(StoredValue *v) {
         ++totalEjectionAttempts;
         item_eviction_policy_t policy = store.getItemEvictionPolicy();
+
+        /**
+         * For FULL EVICTION MODE, add all items that are being
+         * evicted to the corresponding bloomfilter.
+         */
+        if (policy == FULL_EVICTION) {
+            currentBucket->addToFilter(v->getKey());
+        }
+
         if (currentBucket->ht.unlocked_ejectItem(v, policy)) {
             ++ejected;
         }

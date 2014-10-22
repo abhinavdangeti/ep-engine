@@ -442,9 +442,18 @@ void VBucket::initFilter(size_t key_count, double probability,
     }
 }
 
-void VBucket::addToFilter(const char *key, size_t keylen) {
+void VBucket::addToFilter(const std::string &key) {
     if (bFilter) {
-        bFilter->addKey(key, keylen);
+        bFilter->addKey(key.c_str(), key.length());
+    }
+}
+
+bool VBucket::maybeKeyExistsInFilter(const std::string &key) {
+    if (bFilter) {
+        return bFilter->maybeKeyExists(key.c_str(), key.length());
+    } else {
+        // If filter doesn't exist, allow the BgFetch to go through.
+        return true;
     }
 }
 

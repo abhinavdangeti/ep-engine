@@ -107,7 +107,8 @@ void BfilterCB::addKeyToFilter(const char *key, size_t keylen, bool isDeleted) {
                  * Consider deleted items only.
                  */
                 if (isDeleted) {
-                    vb->addToFilter(key, keylen);
+                    std::string theKey(key, keylen);
+                    vb->addToFilter(theKey);
                 }
             } else {
                 /**
@@ -117,10 +118,12 @@ void BfilterCB::addKeyToFilter(const char *key, size_t keylen, bool isDeleted) {
                  * non-resident items, otherwise consider all items.
                  */
                 if (residentRatioLessThanThreshold) {
-                    vb->addToFilter(key, keylen);
+                    std::string theKey(key, keylen);
+                    vb->addToFilter(theKey);
                 } else {
                     if (isDeleted) {
-                        vb->addToFilter(key, keylen);
+                        std::string theKey(key, keylen);
+                        vb->addToFilter(theKey);
                     } else {
                         int bucket_num(0);
                         std::string key_(key, keylen);
@@ -131,7 +134,8 @@ void BfilterCB::addKeyToFilter(const char *key, size_t keylen, bool isDeleted) {
                                                                 false);
                         if (v == NULL) {
                             lh.unlock();
-                            vb->addToFilter(key, keylen);
+                            std::string theKey(key, keylen);
+                            vb->addToFilter(theKey);
                         }
                     }
                 }
