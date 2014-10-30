@@ -95,6 +95,46 @@ void RollbackCB::callback(GetValue &val) {
     delete itm;
 }
 
+void BfilterCB::addKeyToFilter(const char *key, size_t keylen, bool isDeleted) {
+    cb_assert(store);
+    RCPtr<VBucket> vb = store->getVBucket(vbucketId);
+    if (vb) {
+        if (vb->isTempFilterAvailable()) {
+            if (store->getItemEvictionPolicy() == VALUE_ONLY) {
+                /**
+                 * VALUE-ONLY EVICTION POLICY
+                 * Consider deleted items only.
+                 */
+                if (isDeleted) {
+                    std::string theKey(key, keylen);
+                    vb->addToTempFilter(theKey);
+                }
+            } else {
+                /**
+                 * FULL EVICTION POLICY
+                 * If vbucket's resident ratio is found to be less than
+                 * the residency threshold, consider all items, otherwise
+                 * consider deleted and non-resident items only.
+                 */
+                if (residentRatioLessThanThreshold) {
+                    std::string theKey(key, keylen);
+                    vb->addToTempFilter(theKey);
+                } else {
+                    if (isDeleted) {
+                        std::string theKey(key, keylen);
+                        vb->addToTempFilter(theKey);
+                    } else {
+                        std::string theKey(key, keylen);
+                        if (!store->isItemResident(vb, theKey)) {
+                            vb->addToTempFilter(theKey);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 void AllKeysCB::addtoAllKeys(uint16_t len, char *buf) {
     if (length + len + sizeof(uint16_t) > buffersize) {
         buffersize *= 2;

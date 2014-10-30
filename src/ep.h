@@ -650,6 +650,8 @@ public:
         bfilterResidencyThreshold = to;
     }
 
+    bool isItemResident(RCPtr<VBucket> &vb, const std::string &key);
+
     void incExpirationStat(RCPtr<VBucket> &vb, bool byPager = true) {
         if (byPager) {
             ++stats.expired_pager;
