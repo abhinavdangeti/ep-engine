@@ -1400,8 +1400,7 @@ couchstore_error_t CouchKVStore::openDB_retry(std::string &dbfile,
             getSystemStrerror().c_str());
         *newFileRev = checkNewRevNum(dbfile);
         ++retry;
-        if (retry == MAX_OPEN_DB_RETRY - 1 && options == 0 &&
-            errCode == COUCHSTORE_ERROR_NO_SUCH_FILE) {
+        if (retry == MAX_OPEN_DB_RETRY - 1 && options == 0) {
             options = COUCHSTORE_OPEN_FLAG_CREATE;
         }
     }
