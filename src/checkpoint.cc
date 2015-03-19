@@ -888,7 +888,7 @@ bool CheckpointManager::queueDirty(const RCPtr<VBucket> &vb, queued_item& qi,
     cb_assert(checkpointList.back()->getState() == CHECKPOINT_OPEN);
 
     if (genSeqno) {
-        qi->setBySeqno(++lastBySeqno);
+        qi->setBySeqno(nextBySeqno());
     } else {
         lastBySeqno = qi->getBySeqno();
     }
