@@ -44,11 +44,11 @@ CHECK_FUNCTION_EXISTS(gettimeofday HAVE_GETTIMEOFDAY)
 CHECK_FUNCTION_EXISTS(getopt_long HAVE_GETOPT_LONG)
 
 # ---- uncomment the lines below ONLY for dev/debugging ---
-#if ("${CMAKE_C_COMPILER_ID}" STREQUAL "Clang")
-#    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
-#elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-#    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
-#endif()
+if ("${CMAKE_C_COMPILER_ID}" STREQUAL "Clang")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
+elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
+endif()
 
 IF (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/.git)
    EXECUTE_PROCESS(COMMAND git describe
