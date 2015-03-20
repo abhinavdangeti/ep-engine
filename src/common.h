@@ -20,6 +20,7 @@
 
 #include "config.h"
 
+#include <execinfo.h>
 #include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -81,6 +82,9 @@ using std::tr1::unordered_map;
 extern void LOG(EXTENSION_LOG_LEVEL severity, const char *fmt, ...);
 
 extern ALLOCATOR_HOOKS_API *getHooksApi(void);
+
+class StoredValue;
+extern void print_trace(StoredValue *v, const char* func, const char* fname, int line);
 
 // Time handling functions
 inline void advance_tv(struct timeval &tv, const double secs) {

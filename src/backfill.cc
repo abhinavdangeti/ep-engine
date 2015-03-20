@@ -61,6 +61,7 @@ void ItemResidentCallback::callback(CacheLookup &lookup) {
     StoredValue *v = vb->ht.unlocked_find(lookup.getKey(), bucket_num);
     if (v && v->isResident() && v->getBySeqno() == lookup.getBySeqno()) {
         Item* it = v->toItem(false, lookup.getVBucketId());
+        print_trace(v, __func__, __FILE__, __LINE__);
         lh.unlock();
         CompletedBGFetchTapOperation tapop(connToken,
                                            lookup.getVBucketId(), true);
