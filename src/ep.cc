@@ -856,6 +856,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::addTAPBackfillItem(const Item &itm,
     if (v && v->isLocked(ep_current_time())) {
         v->unlock();
     }
+
     mutation_type_t mtype = vb->ht.unlocked_set(v, itm, 0, true, true,
                                                 eviction_policy, nru);
 
@@ -869,8 +870,8 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::addTAPBackfillItem(const Item &itm,
         ret = ENGINE_KEY_EEXISTS;
         break;
     case WAS_DIRTY:
-        // If a given backfill item is already dirty, don't queue it again.
-        break;
+        // FALLTHROUGH to ensure the bySeqno for the hashTable item is
+        // set correctly, and also the sequence numbers are ordered correctly.
     case NOT_FOUND:
         // FALLTHROUGH
     case WAS_CLEAN:
@@ -885,6 +886,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::addTAPBackfillItem(const Item &itm,
         abort();
     }
 
+    LOG(EXTENSION_LOG_WARNING, "[ATBI] return value: %d", ret);
     print_trace(v, __func__, __FILE__, __LINE__);
     return ret;
 }
