@@ -11915,6 +11915,175 @@ static enum test_result test_setWithMeta_with_item_eviction(ENGINE_HANDLE *h,
     return SUCCESS;
 }
 
+struct multi_meta_args {
+    ENGINE_HANDLE *h;
+    ENGINE_HANDLE_V1 *h1;
+    int start;
+    int end;
+};
+
+extern "C" {
+    static void multi_set_with_meta(void *args) {
+        struct multi_meta_args *mma = static_cast<multi_meta_args *>(args);
+
+        for (int i = mma->start; i < mma->end; i++) {
+            // init some random metadata
+            ItemMetaData itm_meta;
+            itm_meta.revSeqno = 10;
+            itm_meta.cas = 0xdeadbeef;
+            itm_meta.exptime = 0;
+            itm_meta.flags = 0xdeadbeef;
+
+            std::stringstream key;
+            key << "key" << i;
+
+            /*
+            char *ext = new char[24];
+            encodeWithMetaExt(ext, &itm_meta);
+
+            protocol_binary_request_header *pkt;
+            pkt = createPacket(PROTOCOL_BINARY_CMD_SET_WITH_META, 0,
+                               last_cas, ext, 24, key.str().c_str(),
+                               key.str().length(), "somevalueEdited",
+                               15, 0x00);
+
+            int ret = mma->h1->unknown_command(mma->h, NULL, pkt,
+                                               add_response_set_del_meta);
+            check(ret == ENGINE_SUCCESS || ret == ENGINE_KEY_EEXISTS,
+                    "Unexpected return status for delete with meta");
+
+            */
+            set_with_meta(mma->h, mma->h1, key.str().c_str(),
+                          key.str().length(), "somevalueEdited", 15,
+                          0, &itm_meta, last_cas);
+        }
+    }
+
+    static void multi_del_with_meta(void *args) {
+        struct multi_meta_args *mma = static_cast<multi_meta_args *>(args);
+
+        for (int i = mma->start; i < mma->end; i++) {
+            // init some random metadata
+            ItemMetaData itm_meta;
+            itm_meta.revSeqno = 10;
+            itm_meta.cas = 0xdeadbeef;
+            itm_meta.exptime = 0;
+            itm_meta.flags = 0xdeadbeef;
+
+            std::stringstream key;
+            key << "key" << i;
+
+            /*
+            char *ext = new char[24];
+            encodeWithMetaExt(ext, &itm_meta);
+
+            protocol_binary_request_header *pkt;
+            pkt = createPacket(PROTOCOL_BINARY_CMD_DEL_WITH_META, 0,
+                               last_cas, ext, 24, key.str().c_str(),
+                               key.str().length(), NULL, 0, 0x00);
+
+            int ret = mma->h1->unknown_command(mma->h, NULL, pkt,
+                                               add_response_set_del_meta);
+            check(ret == ENGINE_SUCCESS || ret == ENGINE_KEY_EEXISTS,
+                    "Unexpected return status for delete with meta");
+
+
+            */
+            del_with_meta(mma->h, mma->h1, key.str().c_str(),
+                          key.str().length(), 0, &itm_meta, last_cas);
+        }
+    }
+}
+
+static enum test_result test_multiple_set_delete_with_metas_full_eviction(
+                                    ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+
+    // Insert documents until resident ratio goes down to 50%
+    check(h1->get_stats(h, NULL, NULL, 0, add_stats) == ENGINE_SUCCESS,
+            "Failed to get stats");
+    std::string eviction_policy = vals.find("ep_item_eviction_policy")->second;
+    cb_assert(eviction_policy == "full_eviction");
+
+    int i = 0;
+    while(get_int_stat(h, h1, "vb_active_perc_mem_resident") > 80) {
+        uint64_t cas_for_set = last_cas;
+        // init some random metadata
+        ItemMetaData itm_meta;
+        itm_meta.revSeqno = 10;
+        itm_meta.cas = 0xdeadbeef;
+        itm_meta.exptime = 0;
+        itm_meta.flags = 0xdeadbeef;
+
+        std::stringstream key;
+        key << "key" << i;
+
+        char *ext = new char[24];
+        encodeWithMetaExt(ext, &itm_meta);
+
+        /*
+        protocol_binary_request_header *pkt;
+        pkt = createPacket(PROTOCOL_BINARY_CMD_SET_WITH_META, 0,
+                           cas_for_set, ext, 24, key.str().c_str(),
+                           key.str().length(), "somevalue", 9, 0x00);
+
+        int ret = h1->unknown_command(h, NULL, pkt,
+                                      add_response_set_del_meta);
+        if (ret != ENGINE_SUCCESS && ret != ENGINE_KEY_EEXISTS) {
+            fprintf(stderr, "\n ret: %d\n", ret);
+        }
+        check(ret == ENGINE_SUCCESS || ret == ENGINE_KEY_EEXISTS,
+                "Unexpected return status for delete with meta");
+        */
+
+        set_with_meta(h, h1, key.str().c_str(), key.str().length(),
+                "somevalue", 9, 0, &itm_meta, cas_for_set);
+        i++;
+    }
+
+    wait_for_flusher_to_settle(h, h1);
+
+    cb_assert(get_int_stat(h, h1, "vb_active_perc_mem_resident") <= 80);
+
+    int curr_items = get_int_stat(h, h1, "curr_items");
+    int num_ops_set_with_meta = get_int_stat(h, h1, "ep_num_ops_set_meta");
+    cb_assert(curr_items == num_ops_set_with_meta);
+
+    cb_thread_t thread1, thread2;
+    struct multi_meta_args mma1, mma2;
+    mma1.h = h;
+    mma1.h1 = h1;
+    mma1.start = 0;
+    mma1.end = 100;
+    cb_assert(cb_create_thread(&thread1, multi_set_with_meta, &mma1, 0) == 0);
+
+    mma2.h = h;
+    mma2.h1 = h1;
+    mma2.start = curr_items - 100;
+    mma2.end = curr_items;
+    cb_assert(cb_create_thread(&thread2, multi_del_with_meta, &mma2, 0) == 0);
+
+    cb_assert(cb_join_thread(thread1) == 0);
+    cb_assert(cb_join_thread(thread2) == 0);
+
+    wait_for_flusher_to_settle(h, h1);
+
+    cb_assert(get_int_stat(h, h1, "ep_num_ops_set_meta") > num_ops_set_with_meta);
+    cb_assert(get_int_stat(h ,h1, "ep_num_ops_del_meta") > 0);
+
+    curr_items = get_int_stat(h, h1, "curr_items");
+
+    testHarness.reload_engine(&h, &h1,
+                              testHarness.engine_path,
+                              testHarness.get_current_testcase()->cfg,
+                              true, true);
+    wait_for_warmup_complete(h, h1);
+
+    cb_assert(get_int_stat(h, h1, "curr_items") == curr_items);
+
+    return SUCCESS;
+}
+
+
 static enum test_result test_add_with_item_eviction(ENGINE_HANDLE *h,
                                                     ENGINE_HANDLE_V1 *h1) {
     item *i = NULL;
@@ -13545,13 +13714,17 @@ engine_test_t* get_tests(void) {
         TestCase("dcp rollback after purge", test_dcp_rollback_after_purge,
                  test_setup, teardown, NULL, prepare, cleanup),
 
-        // full eviction tests EP_TEST_NUM=~300
         TestCase("test set with item_eviction",
                  test_set_with_item_eviction, test_setup, teardown,
                  "item_eviction_policy=full_eviction", prepare, cleanup),
         TestCase("test set_with_meta with item_eviction",
                  test_setWithMeta_with_item_eviction, test_setup, teardown,
                  "item_eviction_policy=full_eviction", prepare, cleanup),
+        TestCase("test multiple set and del with meta with item_eviction",
+                 test_multiple_set_delete_with_metas_full_eviction,
+                 test_setup, teardown,
+                 "item_eviction_policy=full_eviction;max_size=2621440",
+                 prepare, cleanup),
         TestCase("test add with item_eviction",
                  test_add_with_item_eviction, test_setup, teardown,
                  "item_eviction_policy=full_eviction", prepare, cleanup),

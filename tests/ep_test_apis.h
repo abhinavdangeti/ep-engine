@@ -39,6 +39,16 @@ bool add_response(const void *key, uint16_t keylen, const void *ext,
                   uint8_t datatype, uint16_t status, uint64_t cas,
                   const void *cookie);
 
+bool add_response_set_del_meta(const void *key, uint16_t keylen, const void *ext,
+                               uint8_t extlen, const void *body, uint32_t bodylen,
+                               uint8_t datatype, uint16_t status, uint64_t cas,
+                               const void *cookie);
+
+bool add_response_ret_meta(const void *key, uint16_t keylen, const void *ext,
+                           uint8_t extlen, const void *body, uint32_t bodylen,
+                           uint8_t datatype, uint16_t status, uint64_t cas,
+                           const void *cookie);
+
 void add_stats(const char *key, const uint16_t klen, const char *val,
                const uint32_t vlen, const void *cookie);
 
@@ -89,6 +99,7 @@ extern vbucket_state_t dcp_last_vbucket_state;
 
 void decayingSleep(useconds_t *sleepTime);
 
+void encodeWithMetaExt(char *buffer, ItemMetaData *meta);
 
 protocol_binary_request_header* createPacket(uint8_t opcode,
                                              uint16_t vbid = 0,
