@@ -832,6 +832,14 @@ uint32_t PassiveStream::setDead(end_stream_status_t status) {
     LockHolder lh(streamMutex);
     transitionState(STREAM_DEAD);
     uint32_t unackedBytes = buffer.bytes;
+
+    LockHolder blh(buffer.bufMutex);
+    LOG(EXTENSION_LOG_WARNING,
+        "%s (vb %d) Asserting that the buffer is empty on the consumers side before closing stream",
+        consumer->logHeader(), getVBucket());
+    cb_assert(buffer.messages.empty());
+    blh.unlock();
+
     clearBuffer();
     return unackedBytes;
 }
