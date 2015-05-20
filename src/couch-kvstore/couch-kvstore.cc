@@ -1769,7 +1769,12 @@ couchstore_error_t CouchKVStore::saveDocs(uint16_t vbid, uint64_t rev,
         uint64_t flags = COMPRESS_DOC_BODIES | COUCHSTORE_SEQUENCE_AS_IS;
         errCode = couchstore_save_documents(db, docs, docinfos,
                 (unsigned) docCount, flags);
-        st.saveDocsHisto.add((gethrtime() - cs_begin) / 1000);
+        hrtime_t cs_end = gethrtime();
+        st.saveDocsHisto.add((cs_end - cs_begin) / 1000);
+        if ((cs_end - cs_begin) / 1000 > 1000000) {
+            LOG(EXTENSION_LOG_WARNING, "[ALERT] SaveDocs for a batch of %llu on vb %d, "
+                    "exceeded 1s!", docCount, vbid);
+        }
         if (errCode != COUCHSTORE_SUCCESS) {
             LOG(EXTENSION_LOG_WARNING,
                     "Warning: failed to save docs to database, numDocs = %d "
