@@ -1142,6 +1142,8 @@ void CouchKVStore::addTimingStats(const std::string &prefix,
     addStat(prefix_str, "compact",     st.compactHisto,     add_stat, c);
     addStat(prefix_str, "delete",      st.delTimeHisto,     add_stat, c);
     addStat(prefix_str, "save_documents", st.saveDocsHisto, add_stat, c);
+    addStat(prefix_str, "save_documents_add", st.saveDocs_addHisto, add_stat, c);
+    addStat(prefix_str, "save_documents_upd", st.saveDocs_updHisto, add_stat, c);
     addStat(prefix_str, "writeTime",   st.writeTimeHisto,   add_stat, c);
     addStat(prefix_str, "writeSize",   st.writeSizeHisto,   add_stat, c);
     addStat(prefix_str, "bulkSize",    st.batchSize,        add_stat, c);
@@ -1765,11 +1767,15 @@ couchstore_error_t CouchKVStore::saveDocs(uint16_t vbid, uint64_t rev,
                 readDocInfos, &kvctx);
         delete[] ids;
 
+        hrtime_t add_start, add_end, upd_start = 0, upd_end = 0;
+
         hrtime_t cs_begin = gethrtime();
         uint64_t flags = COMPRESS_DOC_BODIES | COUCHSTORE_SEQUENCE_AS_IS;
         errCode = couchstore_save_documents(db, docs, docinfos,
-                (unsigned) docCount, flags);
-        st.saveDocsHisto.add((gethrtime() - cs_begin) / 1000);
+                (unsigned) docCount, flags,
+                &add_start, &add_end, &upd_start, &upd_end);
+        hrtime_t cs_end = gethrtime();
+        st.saveDocsHisto.add((cs_end - cs_begin) / 1000);
         if (errCode != COUCHSTORE_SUCCESS) {
             LOG(EXTENSION_LOG_WARNING,
                     "Warning: failed to save docs to database, numDocs = %d "
@@ -1777,6 +1783,18 @@ couchstore_error_t CouchKVStore::saveDocs(uint16_t vbid, uint64_t rev,
                     couchkvstore_strerrno(db, errCode).c_str());
             closeDatabaseHandle(db);
             return errCode;
+        }
+
+        st.saveDocs_addHisto.add((add_end - add_start) / 1000);
+        if (upd_start != 0 && upd_end != 0) {
+            st.saveDocs_updHisto.add((upd_end - upd_start) / 1000);
+        }
+        if ((cs_end - cs_begin) / 1000 > 1000000 && upd_start != 0 && upd_end != 0) {
+            LOG(EXTENSION_LOG_WARNING, "[ALERT] SaveDocs for a batch of %llu on vb %d, "
+                    "took: %llu us.; adds took: %llu us.; upds took: %llu us.",
+                    docCount, vbid,
+                    (cs_end - cs_begin) / 1000,
+                    (add_end - add_start) / 1000, (upd_end - upd_start) / 1000);
         }
 
         state->lastSnapStart = snapStartSeqno;

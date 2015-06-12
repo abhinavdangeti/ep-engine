@@ -74,6 +74,9 @@ public:
         saveDocsHisto.reset();
         batchSize.reset();
         fsStats.reset();
+
+        saveDocs_addHisto.reset();
+        saveDocs_updHisto.reset();
     }
 
     // the number of docs committed
@@ -113,6 +116,9 @@ public:
     Histogram<hrtime_t> saveDocsHisto;
     // Batch size of saveDocs calls
     Histogram<size_t> batchSize;
+
+    Histogram<hrtime_t> saveDocs_addHisto;
+    Histogram<hrtime_t> saveDocs_updHisto;
 
     // Stats from the underlying OS file operations done by couchstore.
     CouchstoreStats fsStats;
