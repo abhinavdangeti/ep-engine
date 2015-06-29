@@ -695,6 +695,11 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::set(const Item &itm,
         if (vb->addPendingOp(cookie)) {
             return ENGINE_EWOULDBLOCK;
         }
+    } else if (vb->isTakeoverBackedUp()) {
+        LOG(EXTENSION_LOG_DEBUG, "(vb %u) Returned TMPFAIL to a set op"
+                ", becuase takeover is lagging", vb->getId());
+        ++stats.tmp_oom_errors;
+        return ENGINE_TMPFAIL;
     }
 
     bool cas_op = (itm.getCas() != 0);
@@ -776,10 +781,15 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::add(const Item &itm,
         vb->getState() == vbucket_state_replica) {
         ++stats.numNotMyVBuckets;
         return ENGINE_NOT_MY_VBUCKET;
-    } else if(vb->getState() == vbucket_state_pending) {
+    } else if (vb->getState() == vbucket_state_pending) {
         if (vb->addPendingOp(cookie)) {
             return ENGINE_EWOULDBLOCK;
         }
+    } else if (vb->isTakeoverBackedUp()) {
+        LOG(EXTENSION_LOG_DEBUG, "(vb %u) Returned TMPFAIL to a add op"
+                ", becuase takeover is lagging", vb->getId());
+        ++stats.tmp_oom_errors;
+        return ENGINE_TMPFAIL;
     }
 
     if (itm.getCas() != 0) {
@@ -2030,6 +2040,11 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::setWithMeta(
         if (vb->addPendingOp(cookie)) {
             return ENGINE_EWOULDBLOCK;
         }
+    } else if (vb->isTakeoverBackedUp()) {
+        LOG(EXTENSION_LOG_DEBUG, "(vb %u) Returned TMPFAIL to a setWithMeta op"
+                ", becuase takeover is lagging", vb->getId());
+        ++stats.tmp_oom_errors;
+        return ENGINE_TMPFAIL;
     }
 
     int bucket_num(0);
@@ -2528,13 +2543,18 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::deleteItem(const std::string &key,
     if (!vb || (vb->getState() == vbucket_state_dead && !force)) {
         ++stats.numNotMyVBuckets;
         return ENGINE_NOT_MY_VBUCKET;
-    } else if(vb->getState() == vbucket_state_replica && !force) {
+    } else if (vb->getState() == vbucket_state_replica && !force) {
         ++stats.numNotMyVBuckets;
         return ENGINE_NOT_MY_VBUCKET;
-    } else if(vb->getState() == vbucket_state_pending && !force) {
+    } else if (vb->getState() == vbucket_state_pending && !force) {
         if (vb->addPendingOp(cookie)) {
             return ENGINE_EWOULDBLOCK;
         }
+    } else if (vb->isTakeoverBackedUp()) {
+        LOG(EXTENSION_LOG_DEBUG, "(vb %u) Returned TMPFAIL to a delete op"
+                ", becuase takeover is lagging", vb->getId());
+        ++stats.tmp_oom_errors;
+        return ENGINE_TMPFAIL;
     }
 
     int bucket_num(0);
@@ -2669,13 +2689,18 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::deleteWithMeta(
     if (!vb || (vb->getState() == vbucket_state_dead && !force)) {
         ++stats.numNotMyVBuckets;
         return ENGINE_NOT_MY_VBUCKET;
-    } else if(vb->getState() == vbucket_state_replica && !force) {
+    } else if (vb->getState() == vbucket_state_replica && !force) {
         ++stats.numNotMyVBuckets;
         return ENGINE_NOT_MY_VBUCKET;
-    } else if(vb->getState() == vbucket_state_pending && !force) {
+    } else if (vb->getState() == vbucket_state_pending && !force) {
         if (vb->addPendingOp(cookie)) {
             return ENGINE_EWOULDBLOCK;
         }
+    } else if (vb->isTakeoverBackedUp()) {
+        LOG(EXTENSION_LOG_DEBUG, "(vb %u) Returned TMPFAIL to a deleteWithMeta "
+                "op, becuase takeover is lagging", vb->getId());
+        ++stats.tmp_oom_errors;
+        return ENGINE_TMPFAIL;
     }
 
     int bucket_num(0);
