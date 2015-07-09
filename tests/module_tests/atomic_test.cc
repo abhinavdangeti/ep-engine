@@ -82,10 +82,6 @@ static void testSetIfBigger() {
     cb_assert(x.load() == 924);
 }
 
-static void testAtomicDouble(void) {
-    AtomicValue<double> d = 991.5;
-    cb_assert(d == 991.5);
-}
 
 int testAtomicCompareExchangeStrong(void) {
     AtomicValue<bool> x(true);
@@ -129,6 +125,5 @@ int main() {
     testAtomicInt();
     testSetIfLess();
     testSetIfBigger();
-    testAtomicDouble();
     return testAtomicCompareExchangeStrong();
 }
