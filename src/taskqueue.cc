@@ -77,11 +77,17 @@ void TaskQueue::_doWake_UNLOCKED(size_t &numToWake) {
 bool TaskQueue::_doSleep(ExecutorThread &t) {
     gettimeofday(&t.now, NULL);
     if (less_tv(t.now, t.waketime) && manager->trySleep(queueType)) {
+        if (queueType == AUXIO_TASK_IDX) {
+            fprintf(stderr, "Attempting to sleep\n");
+        }
         // Atomically switch from running to sleeping; iff we were previously
         // running.
         executor_state_t expected_state = EXECUTOR_RUNNING;
         if (!t.state.compare_exchange_strong(expected_state,
                                              EXECUTOR_SLEEPING)) {
+            if (queueType == AUXIO_TASK_IDX) {
+                fprintf(stderr, "But couldn't, as expected_state was not RUNNING\n");
+            }
             return false;
         }
         sleepers++;
@@ -102,9 +108,15 @@ bool TaskQueue::_doSleep(ExecutorThread &t) {
         expected_state = EXECUTOR_SLEEPING;
         if (!t.state.compare_exchange_strong(expected_state,
                                              EXECUTOR_RUNNING)) {
+            if (queueType == AUXIO_TASK_IDX) {
+                fprintf(stderr, "But couldn't wake up, as expected_state was not SLEEPING\n");
+            }
             return false;
         }
         gettimeofday(&t.now, NULL);
+        if (queueType == AUXIO_TASK_IDX) {
+            fprintf(stderr, "Rise and shine\n");
+        }
     }
     set_max_tv(t.waketime);
     return true;

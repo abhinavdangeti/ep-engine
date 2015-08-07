@@ -98,6 +98,7 @@ backfill_status_t DCPBackfill::run() {
         case backfill_state_completing:
             return complete(false);
         case backfill_state_done:
+            fprintf(stderr, "State DONE\n");
             return backfill_finished;
         default:
             LOG(EXTENSION_LOG_WARNING, "Invalid backfill state");
@@ -153,11 +154,13 @@ backfill_status_t DCPBackfill::create() {
         transitionState(backfill_state_done);
     }
 
+    fprintf(stderr, "[%u] Create returned SUCCESS\n", vbid);
     return backfill_success;
 }
 
 backfill_status_t DCPBackfill::scan() {
     uint16_t vbid = stream->getVBucket();
+    fprintf(stderr, "[%u] Backfill task: %llu - %llu\n", vbid, startSeqno, endSeqno);
 
     if (!(stream->isActive())) {
         return complete(true);
@@ -167,11 +170,13 @@ backfill_status_t DCPBackfill::scan() {
     scan_error_t error = kvstore->scan(scanCtx);
 
     if (error == scan_again) {
+        fprintf(stderr, "[%u] Retry, endseqno not persisted yet\n", vbid);
         return backfill_success;
     }
 
     transitionState(backfill_state_completing);
 
+    fprintf(stderr, "[%u] Scan returned SUCCESS\n", vbid);
     return backfill_success;
 }
 
@@ -189,6 +194,7 @@ backfill_status_t DCPBackfill::complete(bool cancelled) {
 
     transitionState(backfill_state_done);
 
+    fprintf(stderr, "[%u] Complete returned SUCCESS\n", vbid);
     return backfill_success;
 }
 

@@ -745,10 +745,16 @@ public:
     }
 
     void logQTime(type_id_t taskType, hrtime_t enqTime) {
+        if (taskType == BACKFILL_TASK_ID) {
+            fprintf(stderr, "Backfill Q time: %llu us\n", enqTime);
+        }
         stats.schedulingHisto[taskType].add(enqTime);
     }
 
     void logRunTime(type_id_t taskType, hrtime_t runTime) {
+        if (taskType == BACKFILL_TASK_ID) {
+            fprintf(stderr, "Backfill R time: %llu us\n", runTime);
+        }
         stats.taskRuntimeHisto[taskType].add(runTime);
     }
 

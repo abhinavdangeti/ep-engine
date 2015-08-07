@@ -132,6 +132,7 @@ void BackfillManager::schedule(stream_t stream, uint64_t start, uint64_t end) {
 
     managerTask.reset(new BackfillManagerTask(engine, this,
                                               Priority::BackfillTaskPriority));
+    fprintf(stderr, "BACKFILL MGR started\n");
     ExecutorPool::get()->schedule(managerTask, AUXIO_TASK_IDX);
 }
 
@@ -187,6 +188,7 @@ backfill_status_t BackfillManager::backfill() {
     if (activeBackfills.empty() && snoozingBackfills.empty()
         && pendingBackfills.empty()) {
         managerTask.reset();
+        fprintf(stderr, "BACKFILL MGR DONE\n");
         return backfill_finished;
     }
 
