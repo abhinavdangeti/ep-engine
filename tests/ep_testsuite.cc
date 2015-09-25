@@ -37,6 +37,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <platform/dirutils.h>
@@ -11304,6 +11305,85 @@ static enum test_result test_failover_log_dcp(ENGINE_HANDLE *h,
     return SUCCESS;
 }
 
+static void dcp_thread_func(ENGINE_HANDLE *h,
+                            ENGINE_HANDLE_V1 *h1,
+                            int items) {
+
+    const void *cookie = testHarness.create_cookie();
+    uint32_t opaque = 0xFFFF0000;
+    uint32_t flags = 0;
+    std::string name = "unittest";
+
+    while (get_int_stat(h, h1, "ep_pending_compactions") == 0) {
+    }
+    // Switch to replica
+    check(set_vbucket_state(h, h1, 0, vbucket_state_replica),
+          "Failed to set vbucket state.");
+
+    // Open consumer connection
+    check(h1->dcp.open(h, cookie, opaque, 0, flags, (void*)name.c_str(),
+                       name.size())
+          == ENGINE_SUCCESS, "Failed dcp Consumer open connection.");
+
+    add_stream_for_consumer(h, h1, cookie, opaque++, 0, 0,
+                            PROTOCOL_BINARY_RESPONSE_SUCCESS);
+
+
+    uint32_t stream_opaque =
+        get_int_stat(h, h1, "eq_dcpq:unittest:stream_0_opaque", "dcp");
+
+
+    for (int i = 1; i <= items; i++) {
+        std::string ss = "kamakeey-" + std::to_string(i);
+
+        // send mutations in single mutation snapshots to race more with compaction
+        checkeq(h1->dcp.snapshot_marker(h, cookie,
+                                        stream_opaque, 0/*vbid*/,
+                                        items, items+i, 2),
+                ENGINE_SUCCESS,
+                "Failed to send snapshot marker");
+        checkeq(h1->dcp.mutation(h, cookie, stream_opaque, ss.c_str(),
+                                 ss.length(), "value", 5, i * 3, 0, 0, 0,
+                                 i+items, i+items, 0, 0, "", 0,
+                                 INITIAL_NRU_VALUE),
+                ENGINE_SUCCESS,
+                "Failed to send dcp mutation");
+    }
+
+    testHarness.destroy_cookie(cookie);
+}
+
+static void compact_thread_func(ENGINE_HANDLE *h,
+                                ENGINE_HANDLE_V1 *h1,
+                                int items) {
+    compact_db(h, h1, 0, 99, items, 1);
+}
+
+static enum test_result test_mb16357(ENGINE_HANDLE *h,
+                                               ENGINE_HANDLE_V1 *h1) {
+
+    // Load up vb0 with n items, expire in 1 second
+    int num_items = 50000;
+
+    for (int j = 0; j < num_items; ++j) {
+        item *i = NULL;
+        std::string ss = "key-" + std::to_string(j);
+        check(store(h, h1, nullptr,  OPERATION_SET,
+                    ss.c_str(), "data", &i, 0, 0, 1/*expire*/, 0)
+                    == ENGINE_SUCCESS, "Failed to store a value"); //expire in 1 second
+
+        h1->release(h, NULL, i);
+    }
+
+    wait_for_flusher_to_settle(h, h1);
+    testHarness.time_travel(3617); // force expiry pushing time forward.
+    std::thread cp_thread (compact_thread_func, h, h1, num_items);
+    std::thread dcp_thread (dcp_thread_func, h, h1, num_items);
+    cp_thread.join();
+    dcp_thread.join();
+    return SUCCESS;
+}
+
 static enum test_result prepare(engine_test_t *test) {
 #ifdef __sun
         // Some of the tests doesn't work on Solaris.. Don't know why yet..
@@ -12226,6 +12306,9 @@ engine_test_t* get_tests(void) {
 
         TestCase("test failover log behavior", test_failover_log_behavior,
                  test_setup, teardown, NULL, prepare, cleanup),
+
+        TestCase("test MB-16357", test_mb16357,
+                  test_setup, teardown, "compaction_exp_mem_threshold=85", prepare, cleanup),
 
         TestCase(NULL, NULL, NULL, NULL, NULL, prepare, cleanup)
     };

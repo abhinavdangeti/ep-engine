@@ -578,7 +578,7 @@ public:
         return vbMap.getShard(vbId)->getROUnderlying();
     }
 
-    void deleteExpiredItem(uint16_t, std::string &, time_t, uint64_t );
+    ENGINE_ERROR_CODE deleteExpiredItem(uint16_t, std::string &, time_t, uint64_t );
     void deleteExpiredItems(std::list<std::pair<uint16_t, std::string> > &);
 
 

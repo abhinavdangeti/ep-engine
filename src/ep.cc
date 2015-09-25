@@ -478,12 +478,12 @@ RCPtr<VBucket> EventuallyPersistentStore::getVBucket(uint16_t vbid,
     }
 }
 
-void
+ENGINE_ERROR_CODE
 EventuallyPersistentStore::deleteExpiredItem(uint16_t vbid, std::string &key,
                                              time_t startTime,
                                              uint64_t revSeqno) {
     RCPtr<VBucket> vb = getVBucket(vbid);
-    if (vb) {
+    if (vb && vb->getState() == vbucket_state_active) {
         int bucket_num(0);
         incExpirationStat(vb);
         LockHolder lh = vb->ht.getLockedBucket(key, &bucket_num);
@@ -498,6 +498,7 @@ EventuallyPersistentStore::deleteExpiredItem(uint16_t vbid, std::string &key,
                 vb->ht.unlocked_softDelete(v, 0, getItemEvictionPolicy());
                 queueDirty(vb, v, &lh, false);
             }
+            return ENGINE_SUCCESS;
         } else {
             if (eviction_policy == FULL_EVICTION) {
                 // Create a temp item and delete and push it
@@ -505,15 +506,20 @@ EventuallyPersistentStore::deleteExpiredItem(uint16_t vbid, std::string &key,
                 add_type_t rv = vb->ht.unlocked_addTempItem(bucket_num, key,
                                                             eviction_policy);
                 if (rv == ADD_NOMEM) {
-                    return;
+                    return ENGINE_ENOMEM;
                 }
                 v = vb->ht.unlocked_find(key, bucket_num, true, false);
                 v->setStoredValueState(StoredValue::state_deleted_key);
                 v->setRevSeqno(revSeqno);
                 vb->ht.unlocked_softDelete(v, 0, eviction_policy);
                 queueDirty(vb, v, &lh, false);
+                return ENGINE_SUCCESS;
+            } else { // value_only eviction policy
+                return ENGINE_KEY_ENOENT;
             }
         }
+    } else {
+        return ENGINE_NOT_MY_VBUCKET;
     }
 }
 
@@ -523,7 +529,12 @@ EventuallyPersistentStore::deleteExpiredItems(std::list<std::pair<uint16_t,
     std::list<std::pair<uint16_t, std::string> >::iterator it;
     time_t startTime = ep_real_time();
     for (it = keys.begin(); it != keys.end(); it++) {
-        deleteExpiredItem(it->first, it->second, startTime, 0);
+        if (deleteExpiredItem(it->first, it->second, startTime, 0)
+                == ENGINE_NOT_MY_VBUCKET) {
+            // Stop attempting to expire the rest of the items,
+            // as it isn't the right vbucket anymore
+            return;
+        }
     }
 }
 
@@ -1229,9 +1240,14 @@ class ExpiredItemsCallback : public Callback<compaction_ctx> {
             for (it  = ctx.expiredItems.begin();
                  it != ctx.expiredItems.end(); it++) {
                 if (epstore->compactionCanExpireItems()) {
-                    epstore->deleteExpiredItem(vbucket, it->keyStr,
-                                               ctx.curr_time,
-                                               it->revSeqno);
+                    if (epstore->deleteExpiredItem(vbucket, it->keyStr,
+                                                   ctx.curr_time,
+                                                   it->revSeqno)
+                            == ENGINE_NOT_MY_VBUCKET) {
+                        // Stop attempting to expire the rest of the items,
+                        // as it isn't the right vbucket anymore
+                        return;
+                    }
                 }
             }
         }
