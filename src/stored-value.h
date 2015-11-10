@@ -773,6 +773,11 @@ private:
     EPStats                *stats;
 };
 
+struct KeysInfo {
+    std::map<std::string, int> keyBuckets;
+    std::vector<LockHolder> locks;
+};
+
 /**
  * A container of StoredValue instances.
  */
@@ -1413,6 +1418,41 @@ public:
      */
     inline LockHolder getLockedBucket(const std::string &s, int *bucket) {
         return getLockedBucket(hash(s.data(), s.size()), bucket);
+    }
+
+    /**
+     * Get lock holders holding locks for all the buckets for the hashes
+     * of all the given keys.
+     *
+     * @param keys vector of keys
+     * @return locked LockHolders, buckets for all keys
+     */
+    inline struct KeysInfo acquireMultipleLocks(std::vector<std::string> keys) {
+        struct KeysInfo ki;
+        std::vector<std::string>::iterator vit = keys.begin();
+        std::vector<int> hashes;
+        for (; vit != keys.end(); ++vit) {
+            hashes.push_back(hash((*vit).c_str(), (*vit).size()));
+        }
+
+        std::list<int> bucket_nums;
+        for (size_t i = 0; i < hashes.size(); ++i) {
+            while (true) {
+                int bucket = getBucketForHash(hashes[i]);
+                if (std::find(bucket_nums.begin(), bucket_nums.end(), bucket)
+                        != bucket_nums.end()) {
+                    break;
+                }
+                LockHolder rv(mutexes[mutexForBucket(bucket)]);
+                if (bucket == getBucketForHash(hashes[i])) {
+                    ki.locks.push_back(rv);
+                    ki.keyBuckets[keys[i]] = bucket;
+                    bucket_nums.push_back(bucket);
+                    break;
+                }
+            }
+        }
+        return ki;
     }
 
     /**

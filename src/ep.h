@@ -296,6 +296,26 @@ public:
                            vbucket_state_replica);
     }
 
+    /**
+     * Process multiple mutations atomically.
+     *
+     * @param cookie the connection cookie
+     * @param vbucket the vbucket to which all the mutations will belong to
+     * @param mutations array of mutations to process
+     * @param numMutations size of the mutations array
+     * @param docsToChk array of keys (along with meta info) whose CAS needs
+     *                  to be verified before mutations are processed
+     *                  (optional, can be empty)
+     * @param numDocsToChk size of docsToChk array
+     *
+     * @param engine error code stating whether the operation succeeded or not
+     */
+    ENGINE_ERROR_CODE multiSet(const void *cookie,
+                               uint16_t vbid,
+                               item* mutations[],
+                               size_t numMutations,
+                               item_info* docsToChk[],
+                               size_t numDocsToChk);
 
     /**
      * Retrieve the meta data for an item

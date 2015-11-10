@@ -1127,6 +1127,110 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::addTAPBackfillItem(
     return ret;
 }
 
+ENGINE_ERROR_CODE
+EventuallyPersistentStore::multiSet(const void *cookie,
+                                    uint16_t vbid,
+                                    item* mutations[],
+                                    size_t numMutations,
+                                    item_info* docsToChk[],
+                                    size_t numDocsToChk) {
+
+    RCPtr<VBucket> vb = getVBucket(vbid);
+    if (!vb) {
+        ++stats.numNotMyVBuckets;
+        return ENGINE_NOT_MY_VBUCKET;
+    }
+
+    // Obtain read-lock on VB state to ensure VB state changes are interlocked
+    // with the multi-set operation
+    ReaderLockHolder(vb->getStateLock());
+    if (vb->getState() == vbucket_state_replica ||
+        vb->getState() == vbucket_state_dead) {
+        ++stats.numNotMyVBuckets;
+        return ENGINE_NOT_MY_VBUCKET;
+    } else if (vb->getState() == vbucket_state_pending &&
+               vb->addPendingOp(cookie)) {
+        return ENGINE_EWOULDBLOCK;
+    } else if (vb->isTakeoverBackedUp()) {
+        LOG(EXTENSION_LOG_WARNING, "(vb %u) Returned TMPFAIL to multi_set op"
+                ", because takeover is lagging", vb->getId());
+        return ENGINE_TMPFAIL;
+    }
+
+    if (numDocsToChk > 0) {
+        /**
+         * Need to verify CAS for documents included in the
+         * docsToChk array.
+         */
+        bool casMismatch = false;
+
+        // TODO stuff
+
+        if (casMismatch) {
+            return ENGINE_KEY_EEXISTS;
+        }
+    }
+
+    std::vector<std::string> keys;
+    for (size_t i = 0; i < numMutations; ++i) {
+        Item *it = reinterpret_cast<Item*>(mutations[i]);
+        keys.push_back(it->getKey());
+    }
+
+    struct KeysInfo ki = vb->ht.acquireMultipleLocks(keys);
+    for (size_t i = 0; i < numMutations; ++i) {
+        Item *itm = reinterpret_cast<Item*>(mutations[i]);
+        StoredValue *v = vb->ht.unlocked_find(itm->getKey(),
+                                              ki.keyBuckets[itm->getKey()],
+                                              /*wantsDeleted*/true,
+                                              /*trackReference*/false);
+
+        if (itm->getCas() != 0) {
+            //TODO: Throw exception perhaps?
+        }
+
+        mutation_type_t mtype = vb->ht.unlocked_set(v, *itm, 0,
+                                                    /*allowExisting*/true,
+                                                    /*hasMetaData*/true,
+                                                    eviction_policy,
+                                                    0xff, false);
+
+        uint64_t seqno = 0;
+        ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
+        switch (mtype) {
+        case NOMEM:
+            ret = ENGINE_ENOMEM;
+            // TODO: Need to erase all previos other writes that were
+            // part of this OP
+            break;
+        case INVALID_CAS:
+        case IS_LOCKED:
+            ret = ENGINE_KEY_EEXISTS;
+            // TODO: Need to erase all the previous writes that were
+            // part of this OP
+            break;
+        case NOT_FOUND:
+            // Fall through
+        case WAS_DIRTY:
+        case WAS_CLEAN:
+            // TODO: Update CAS, and queue dirty only if in-memory operations
+            // for all the mutations succeeded
+            break;
+        case NEED_BG_FETCH:
+            // TODO: Throw exception perhaps?, as this should have never
+            // been the outcome
+            break;
+        case INVALID_VBUCKET:
+            ret = ENGINE_NOT_MY_VBUCKET;
+            // TODO: Need to erase all the previous writes that were
+            // part of this OP
+            break;
+        }
+    }
+
+    return ENGINE_SUCCESS;
+}
+
 class KVStatsCallback : public Callback<kvstats_ctx> {
     public:
         KVStatsCallback(EventuallyPersistentStore *store)

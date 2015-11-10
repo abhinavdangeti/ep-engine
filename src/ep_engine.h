@@ -29,6 +29,7 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include "configuration.h"
 #include "ep.h"
@@ -352,6 +353,13 @@ public:
                             uint64_t *cas,
                             ENGINE_STORE_OPERATION operation,
                             uint16_t vbucket);
+
+    ENGINE_ERROR_CODE multiStore(const void *cookie,
+                                 uint16_t vbid,
+                                 item* mutations[],
+                                 size_t numMutations,
+                                 item_info* docsToChk[],
+                                 size_t numDocsToChk);
 
     ENGINE_ERROR_CODE arithmetic(const void* cookie,
                                  const void* key,
