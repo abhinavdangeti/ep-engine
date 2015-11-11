@@ -119,7 +119,15 @@ bool VKeyStatBGFetchTask::run() {
 
 
 bool BGFetchTask::run() {
-    engine->getEpStore()->completeBGFetch(key, vbucket, cookie, init,
+    std::vector<std::string> keys;
+    keys.push_back(key);
+    engine->getEpStore()->completeBGFetch(keys, vbucket, cookie, init,
+                                          metaFetch);
+    return false;
+}
+
+bool BGMultiFetchTask::run() {
+    engine->getEpStore()->completeBGFetch(keys, vbucket, cookie, init,
                                           metaFetch);
     return false;
 }

@@ -296,6 +296,26 @@ public:
                            vbucket_state_replica);
     }
 
+    /**
+     * Process multiple mutations atomically.
+     *
+     * @param cookie the connection cookie
+     * @param vbucket the vbucket to which all the mutations will belong to
+     * @param mutations array of mutations to process
+     * @param numMutations size of the mutations array
+     * @param docsToChk array of keys (along with meta info) whose CAS needs
+     *                  to be verified before mutations are processed
+     *                  (optional, can be empty)
+     * @param numDocsToChk size of docsToChk array
+     *
+     * @param engine error code stating whether the operation succeeded or not
+     */
+    ENGINE_ERROR_CODE multiSet(const void *cookie,
+                               uint16_t vbid,
+                               item* mutations[],
+                               size_t numMutations,
+                               item_info* docsToChk[],
+                               size_t numDocsToChk);
 
     /**
      * Retrieve the meta data for an item
@@ -472,18 +492,19 @@ public:
     /**
      * Complete a background fetch of a non resident value or metadata.
      *
-     * @param key the key that was fetched
+     * @param keys vector of keys that are to be fetched as part of this op
      * @param vbucket the vbucket in which the key lived
      * @param cookie the cookie of the requestor
      * @param init the timestamp of when the request came in
      * @param type whether the fetch is for a non-resident value or metadata of
      *             a (possibly) deleted item
      */
-    void completeBGFetch(const std::string &key,
+    void completeBGFetch(std::vector<std::string> keys,
                          uint16_t vbucket,
                          const void *cookie,
                          hrtime_t init,
                          bool isMeta);
+
     /**
      * Complete a batch of background fetch of a non resident value or metadata.
      *

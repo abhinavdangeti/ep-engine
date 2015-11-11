@@ -424,6 +424,36 @@ private:
 };
 
 /**
+ * A task that performs disk fetches for a set of possibly non-resident items.
+ */
+class BGMultiFetchTask : public GlobalTask {
+public:
+    BGMultiFetchTask(EventuallyPersistentEngine *e,
+                     std::vector<std::string> _keys,
+                     uint16_t vbid, const void *c, bool isMeta,
+                     const Priority &p, int sleeptime = 0,
+                     bool completeBeforeShutdown = false) :
+        GlobalTask(e, p, sleeptime, completeBeforeShutdown),
+        keys(_keys), vbucket(vbid), cookie(c), metaFetch(isMeta),
+        init(gethrtime()) { }
+
+    bool run();
+
+    std::string getDescription() {
+        std::string desr("Fetching multiple keys from disk, for vbucket: " +
+                         std::to_string(vbucket));
+        return desr;
+    }
+
+private:
+    std::vector<std::string>        keys;
+    uint16_t                        vbucket;
+    const void                     *cookie;
+    bool                            metaFetch;
+    hrtime_t                        init;
+};
+
+/**
  * A task that monitors if a bucket is read-heavy, write-heavy, or mixed.
  */
 class WorkLoadMonitor : public GlobalTask {

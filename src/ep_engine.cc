@@ -235,6 +235,24 @@ extern "C" {
         return err_code;
     }
 
+    static ENGINE_ERROR_CODE EvpMultiStore(ENGINE_HANDLE* handle,
+                                           const void* cookie,
+                                           uint16_t vbid,
+                                           item* mutations[],
+                                           size_t numMutations,
+                                           item_info* docsToChk[],
+                                           size_t numDocsToChk)
+    {
+        ENGINE_ERROR_CODE err_code = getHandle(handle)->multiStore(cookie,
+                                                                   vbid,
+                                                                   mutations,
+                                                                   numMutations,
+                                                                   docsToChk,
+                                                                   numDocsToChk);
+        releaseHandle(handle);
+        return err_code;
+    }
+
     static ENGINE_ERROR_CODE EvpArithmetic(ENGINE_HANDLE* handle,
                                            const void* cookie,
                                            const void* key,
@@ -1992,6 +2010,7 @@ EventuallyPersistentEngine::EventuallyPersistentEngine(
     ENGINE_HANDLE_V1::get_stats = EvpGetStats;
     ENGINE_HANDLE_V1::reset_stats = EvpResetStats;
     ENGINE_HANDLE_V1::store = EvpStore;
+    ENGINE_HANDLE_V1::multi_store = EvpMultiStore;
     ENGINE_HANDLE_V1::arithmetic = EvpArithmetic;
     ENGINE_HANDLE_V1::flush = EvpFlush;
     ENGINE_HANDLE_V1::unknown_command = EvpUnknownCommand;
@@ -2003,7 +2022,6 @@ EventuallyPersistentEngine::EventuallyPersistentEngine(
     ENGINE_HANDLE_V1::get_engine_vb_map = EvpGetClusterConfig;
     ENGINE_HANDLE_V1::get_stats_struct = NULL;
     ENGINE_HANDLE_V1::aggregate_stats = NULL;
-
 
     ENGINE_HANDLE_V1::dcp.step = EvpDcpStep;
     ENGINE_HANDLE_V1::dcp.open = EvpDcpOpen;
@@ -2410,6 +2428,19 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::store(const void *cookie,
     }
 
     return ret;
+}
+
+ENGINE_ERROR_CODE
+EventuallyPersistentEngine::multiStore(const void *cookie,
+                                       uint16_t vbid,
+                                       item* mutations[],
+                                       size_t numMutations,
+                                       item_info* docsToChk[],
+                                       size_t numDocsToChk) {
+
+    return epstore->multiSet(cookie, vbid,
+                             mutations, numMutations,
+                             docsToChk, numDocsToChk);
 }
 
 inline uint16_t EventuallyPersistentEngine::doWalkTapQueue(const void *cookie,
