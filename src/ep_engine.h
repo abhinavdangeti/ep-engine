@@ -62,7 +62,16 @@ typedef void (*NOTIFY_IO_COMPLETE_T)(const void *cookie,
 
 // Forward decl
 class EventuallyPersistentEngine;
-class TapConnMap;
+class Producer;
+class ConnHandler;
+class TapProducer;
+class TapConsumer;
+class TapConfig;
+
+typedef enum {
+    TAP_CONN, //!< TAP connnection
+    DCP_CONN  //!< DCP connection
+} conn_type_t;
 
 /**
  * Vbucket visitor that counts active vbuckets.
@@ -736,6 +745,7 @@ public:
     ENGINE_ERROR_CODE getAllVBucketSequenceNumbers(const void *cookie,
                                                    ADD_RESPONSE response);
 
+    EventuallyPersistentEngine(GET_SERVER_API get_server_api);
 protected:
     friend class EpEngineValueChangeListener;
 
@@ -752,7 +762,6 @@ protected:
     }
 
 private:
-    EventuallyPersistentEngine(GET_SERVER_API get_server_api);
     friend ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                              GET_SERVER_API get_server_api,
                                              ENGINE_HANDLE **handle);

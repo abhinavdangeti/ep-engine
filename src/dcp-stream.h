@@ -20,6 +20,9 @@
 
 #include "config.h"
 
+#include "ep_engine.h"
+#include "tasks.h"
+
 #include <queue>
 
 class EventuallyPersistentEngine;
@@ -211,6 +214,10 @@ public:
 
     // Runs on ActiveStreamCheckpointProcessorTask
     void nextCheckpointItemTask();
+
+    void fetchItemsFromCheckpointQueues(RCPtr<VBucket> &vbucket,
+                                        std::deque<queued_item> &items);
+    void addFetchedItemsToReadyQueue(std::deque<queued_item> items);
 
 private:
 

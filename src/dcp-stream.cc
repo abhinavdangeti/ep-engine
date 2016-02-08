@@ -17,7 +17,6 @@
 
 #include "config.h"
 
-#include "ep_engine.h"
 #include "failover-table.h"
 #include "kvstore.h"
 #include "statwriter.h"
@@ -696,13 +695,25 @@ void ActiveStream::nextCheckpointItemTask() {
            point here */
         return;
     }
-    bool mark = false;
+
     std::deque<queued_item> items;
-    std::deque<MutationResponse*> mutations;
+    fetchItemsFromCheckpointQueues(vbucket, items);
+    addFetchedItemsToReadyQueue(items);
+}
+
+void ActiveStream::fetchItemsFromCheckpointQueues(
+                                        RCPtr<VBucket> &vbucket,
+                                        std::deque<queued_item> &items) {
     vbucket->checkpointManager.getAllItemsForCursor(name_, items);
     if (vbucket->checkpointManager.getNumCheckpoints() > 1) {
         engine->getEpStore()->wakeUpCheckpointRemover();
     }
+}
+
+void ActiveStream::addFetchedItemsToReadyQueue(
+                                        std::deque<queued_item> items) {
+    bool mark = false;
+    std::deque<MutationResponse*> mutations;
 
     if (items.empty()) {
         producer->notifyStreamReady(vb_, true);

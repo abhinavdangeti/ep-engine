@@ -170,11 +170,6 @@ public:
     queued_item item_;
 };
 
-typedef enum {
-    TAP_CONN, //!< TAP connnection
-    DCP_CONN  //!< DCP connection
-} conn_type_t;
-
 class ConnHandler : public RCValue {
 public:
     ConnHandler(EventuallyPersistentEngine& engine, const void* c,
