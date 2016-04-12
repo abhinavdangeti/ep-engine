@@ -507,6 +507,7 @@ bool ExecutorPool::_stopTaskGroup(EventuallyPersistentEngine *e,
     std::map<size_t, TaskQpair>::iterator itr;
 
     LockHolder lh(tMutex);
+    fprintf(stderr, "\nStopping task group\n");
     LOG(EXTENSION_LOG_DEBUG, "Stopping %d type tasks in bucket %s", taskType,
             e->getName());
     do {

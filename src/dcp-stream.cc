@@ -133,6 +133,7 @@ private:
 };
 
 bool DCPBackfill::run() {
+    fprintf(stderr, "\nBAckfill started\n");
     uint16_t vbid = stream->getVBucket();
 
     if (engine->getEpStore()->isMemoryUsageTooHigh()) {

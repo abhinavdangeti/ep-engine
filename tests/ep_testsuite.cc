@@ -11727,6 +11727,73 @@ static enum test_result test_mb16357(ENGINE_HANDLE *h,
     return SUCCESS;
 }
 
+static enum test_result test_mb19153(ENGINE_HANDLE *h,
+                                     ENGINE_HANDLE_V1 *h1) {
+
+    putenv(strdup("ALLOW_NO_STATS_UPDATE=yeah"));
+
+    // Set max num AUX IO to 0, so no backfill would start
+    // immediately
+    set_param(h, h1, protocol_binary_engine_param_flush,
+              "max_num_auxio", "0");
+
+    int num_items = 500000;
+
+    for (int j = 0; j < num_items; ++j) {
+        item *i = NULL;
+        std::stringstream ss;
+        ss << "key-" << j;
+        check(store(h, h1, NULL, OPERATION_SET,
+                    ss.str().c_str(), "data", &i, 0, 0, 0, 0)
+                    == ENGINE_SUCCESS, "Failed to store a value");
+
+        h1->release(h, NULL, i);
+    }
+
+    const void *cookie = testHarness.create_cookie();
+    uint32_t flags = DCP_OPEN_PRODUCER;
+    const char *name = "unittest";
+
+    uint32_t opaque = 1;
+    uint64_t start = 0;
+    uint64_t end = num_items;
+
+    // Open consumer connection
+    checkeq(ENGINE_SUCCESS,
+            h1->dcp.open(h, cookie, ++opaque, 0, flags,
+                         (void*)name, strlen(name)),
+            "Failed dcp Consumer open connection.");
+
+    uint64_t vb_uuid = get_ull_stat(h, h1, "vb_0:0:id", "failovers");
+    uint64_t rollback = 0;
+    checkeq(ENGINE_SUCCESS,
+            h1->dcp.stream_req(h, cookie, 0, opaque, 0, start, end,
+                               vb_uuid, 0, 0,
+                               &rollback, mock_dcp_add_failover_log),
+            "Expected success");
+
+
+    // Set auxIO threads to 1, so the backfill for the closed producer
+    // is picked up.
+    set_param(h, h1, protocol_binary_engine_param_flush,
+              "max_num_auxio", "1");
+
+    // Wait for backfill to start
+    while (get_int_stat(h, h1, "eq_dcpq:unittest:stream_0_last_read_seqno",
+                        "dcp") < 1);
+
+    fprintf(stderr, "Kill cookie");
+    testHarness.destroy_cookie(cookie);
+
+    // Wait for MIN_SLEEP_TIME + 1 for ConnManager to clear out
+    // dead connections.
+    sleep(3);
+
+    // Terminate
+    fprintf(stderr, "\nTerminate test\n");
+    return SUCCESS;
+}
+
 static enum test_result prepare(engine_test_t *test) {
 #ifdef __sun
         // Some of the tests doesn't work on Solaris.. Don't know why yet..
@@ -12664,6 +12731,9 @@ engine_test_t* get_tests(void) {
         TestCase("test MB-16357", test_mb16357,
                  test_setup, teardown, "compaction_exp_mem_threshold=85",
                  prepare, cleanup),
+        TestCase("test MB-19153", test_mb19153,
+                 test_setup, teardown, NULL, prepare, cleanup),
+
         TestCase("test dcp early termination", test_dcp_early_termination,
                  test_setup, teardown, NULL, prepare, cleanup),
         TestCase(NULL, NULL, NULL, NULL, NULL, prepare, cleanup)
