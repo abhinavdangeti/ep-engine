@@ -27,6 +27,13 @@
 
 using namespace CouchbaseDirectoryUtilities;
 
+extern "C" {
+    static int recordChangesC(fdb_kvs_handle *handle, fdb_doc *doc, void *ctx)
+    {
+        return ForestKVStore::recordChanges(handle, doc, ctx);
+    }
+}
+
 Mutex ForestKVStore::initLock;
 int ForestKVStore::numGlobalFiles = 0;
 
@@ -297,7 +304,12 @@ ForestRequest::ForestRequest(const Item &it, MutationRequestCallback &cb ,bool d
     : IORequest(it.getVBucketId(), cb, del, it.getKey()),
       status(MUTATION_SUCCESS) { }
 
-ForestRequest::~ForestRequest() {
+ForestRequest::~ForestRequest() { }
+
+int ForestKVStore::recordChanges(fdb_kvs_handle *handle,
+                                 fdb_doc *doc,
+                                 void *ctx) {
+
 }
 
 void ForestKVStore::close() {

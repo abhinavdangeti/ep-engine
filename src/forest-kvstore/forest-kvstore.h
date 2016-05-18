@@ -245,6 +245,25 @@ class ForestKVStore : public KVStore
         return ntohs(req.message.body.db_file_id);
     }
 
+    ScanContext* initScanContext(std::shared_ptr<CallbackGetValue> > cb,
+                                 std::shared_ptr<Callback<CacheLookup> > cl,
+                                 uint16_t vbid, uint64_t startSeqno,
+                                 DocumentFilter options,
+                                 ValueFilter valOptions) override;
+    /**
+     * Callback that is invoked by FDB api: fdb_changes_since
+     *
+     * @param handle pointer to handle for the KV store
+     * @param doc pointer to the document
+     * @param ctx context set by the caller
+     *
+     * return:
+     *      0   : Success, fdb_doc will be freed by API
+     *      1   : Success, fdb_doc will need to be freed by caller
+     *      -1  : Failure, fdb_doc will be freed by API, API stops iteration
+     */
+    static int recordChanges(fdb_kvs_handle *handle, fdb_doc *doc, void *ctx);
+
     /**
      * Callback invoked at compaction time on the database file to purge
      * tombstone entries and invoke expiry/bloom filter callbacks, if set
