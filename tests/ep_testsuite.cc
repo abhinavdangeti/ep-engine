@@ -3429,6 +3429,9 @@ static enum test_result test_curr_items(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) 
             store(h, h1, NULL, OPERATION_SET,"k3", "v3", &i),
             "Failed to fail to store an item.");
     h1->release(h, NULL, i);
+
+    wait_for_flusher_to_settle(h, h1);
+
     check(set_vbucket_state(h, h1, 0, vbucket_state_dead), "Failed set vbucket 0 state.");
 
     verify_curr_items(h, h1, 0, "dead vbucket");
