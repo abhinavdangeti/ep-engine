@@ -1683,12 +1683,9 @@ fdb_compact_decision ForestKVStore::compaction_cb(fdb_file_handle* fhandle,
 
 bool ForestKVStore::compactDB(compaction_ctx* ctx) {
     hrtime_t start = gethrtime();
-<<<<<<< HEAD
-=======
 
     bool inverse = false;
 
->>>>>>> c3aa13c... MB-19900: Hack vbucket stats to trigger compaction on a shard
     uint16_t shardId = ctx->db_file_id;
 
     if (!isCompactRunning.compare_exchange_strong(inverse, true)) {
