@@ -145,6 +145,15 @@ ForestKVStore::ForestKVStore(KVStoreConfig &config) :
      */
     fileConfig.breakpad_minidump_dir = nullptr;
 
+    /* Set the buffer cache value to 6 GiB for performance */
+    fileConfig.buffercache_size = 6442450944;
+
+    /* Setting wal_threshold to 40k */
+    fileConfig.wal_threshold = 40960;
+
+    /* Disable block reuse */
+    fileConfig.block_reusing_threshold = 100;
+
     statCollectingFileOps = getForestStatOps(&st.fsStats);
 
     fileConfig.custom_file_ops = &statCollectingFileOps;

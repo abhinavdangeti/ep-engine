@@ -1058,7 +1058,6 @@ extern "C" {
         compactreq.drop_deletes     = req->message.body.drop_deletes;
         compactreq.db_file_id   = e->getEpStore()->getDBFileId(*req);
         const VBucketMap& vbMap = e->getEpStore()->getVBuckets();
-        uint16_t numShards = vbMap.getNumShards();
         KVShard* shard = vbMap.getShardByVbId(compactreq.db_file_id);
         uint16_t shardId = shard->getId();
 
@@ -1070,7 +1069,7 @@ extern "C" {
             if (es == NULL) {
                 ++stats.pendingCompactions;
                 e->storeEngineSpecific(cookie, e);
-                err = e->compactDB(compactreq, cookie);
+                err = e->compactDB(compactreq.db_file_id, compactreq, cookie);
             } else {
                 e->storeEngineSpecific(cookie, NULL);
                 err = ENGINE_SUCCESS;
