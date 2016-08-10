@@ -102,7 +102,7 @@ public:
 
 private:
     bool transition_state(enum flusher_state to);
-    void flushVB();
+    bool flushVB();
     void completeFlush();
     void initialize();
     void schedule_UNLOCKED();

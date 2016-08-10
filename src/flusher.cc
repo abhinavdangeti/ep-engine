@@ -180,18 +180,25 @@ bool Flusher::step(GlobalTask *task) {
         return true;
 
     case running:
-        flushVB();
-        if (_state == running) {
-            double tosleep = computeMinSleepTime();
-            if (tosleep > 0) {
-                if (currCommitInterval > 0 &&
-                    currCommitInterval < initCommitInterval) {
-                    // Commit before snoozing the flusher if some vbuckets
-                    // are already flushed but not committed yet
-                    store->commit(shard->getId());
-                    resetCommitInterval();
+        {
+            uint16_t commit_interval = currCommitInterval;
+            for (uint16_t i = 0; i < commit_interval; ++i) {
+                if (!flushVB()) {
+                    break;
                 }
-                task->snooze(tosleep);
+            }
+            if (_state == running) {
+                double tosleep = computeMinSleepTime();
+                if (tosleep > 0) {
+                    if (currCommitInterval > 0 &&
+                        currCommitInterval < initCommitInterval) {
+                        // Commit before snoozing the flusher if some vbuckets
+                        // are already flushed but not committed yet
+                        store->commit(shard->getId());
+                        resetCommitInterval();
+                    }
+                    task->snooze(tosleep);
+                }
             }
         }
         return true;
@@ -247,12 +254,12 @@ uint16_t Flusher::decrCommitInterval(void) {
     return currCommitInterval;
 }
 
-void Flusher::flushVB(void) {
+bool Flusher::flushVB(void) {
     if (store->diskFlushAll && shard->getId() != EP_PRIMARY_SHARD) {
         // another shard is doing disk flush
         bool inverse = false;
         pendingMutation.compare_exchange_strong(inverse, true);
-        return;
+        return false;
     }
 
     if (lpVbs.empty()) {
@@ -282,7 +289,7 @@ void Flusher::flushVB(void) {
 
     if (hpVbs.empty() && lpVbs.empty()) {
         LOG(EXTENSION_LOG_INFO, "Trying to flush but no vbucket exist");
-        return;
+        return false;
     } else if (!hpVbs.empty()) {
         uint16_t vbid = hpVbs.front();
         hpVbs.pop();
@@ -299,4 +306,5 @@ void Flusher::flushVB(void) {
             lpVbs.push(vbid);
         }
     }
+    return true;
 }
