@@ -277,6 +277,10 @@ void KVStore::addTimingStats(ADD_STAT add_stat, const void *c) {
 
     const std::string& prefix = prefixStream.str();
 
+    addStat(prefix, "fdb_set_state", st.fdbSetStateHisto, add_stat, c);
+    addStat(prefix, "fdb_kvs_info", st.fdbKvsInfoHisto, add_stat, c);
+    addStat(prefix, "fdb_file_info", st.fdbFileInfoHisto, add_stat, c);
+    addStat(prefix, "commit_callback", st.commitCallbackHisto, add_stat, c);
     addStat(prefix, "commit",      st.commitHisto,      add_stat, c);
     addStat(prefix, "compact",     st.compactHisto,     add_stat, c);
     addStat(prefix, "snapshot",    st.snapshotHisto,    add_stat, c);

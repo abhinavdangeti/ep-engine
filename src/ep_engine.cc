@@ -4371,9 +4371,12 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::doTimingStats(const void *cookie,
     // Disk stats
     add_casted_stat("disk_insert", stats.diskInsertHisto, add_stat, cookie);
     add_casted_stat("disk_update", stats.diskUpdateHisto, add_stat, cookie);
+    add_casted_stat("cumulative_disk_update", stats.cumuDiskUpdateHisto,
+                    add_stat, cookie);
     add_casted_stat("disk_del", stats.diskDelHisto, add_stat, cookie);
     add_casted_stat("disk_vb_del", stats.diskVBDelHisto, add_stat, cookie);
     add_casted_stat("disk_commit", stats.diskCommitHisto, add_stat, cookie);
+    add_casted_stat("flush_time", stats.flushTimeHisto, add_stat, cookie);
     add_casted_stat("disk_vbstate_snapshot", stats.snapshotVbucketHisto,
                     add_stat, cookie);
     add_casted_stat("disk_persist_vbstate", stats.persistVBStateHisto,

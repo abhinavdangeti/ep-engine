@@ -54,7 +54,7 @@ CHECK_FUNCTION_EXISTS(gettimeofday HAVE_GETTIMEOFDAY)
 CHECK_FUNCTION_EXISTS(getopt_long HAVE_GETOPT_LONG)
 
 # For debugging without compiler optimizations uncomment line below..
-#SET (CMAKE_BUILD_TYPE DEBUG)
+# SET (CMAKE_BUILD_TYPE DEBUG)
 
 IF (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/.git)
    EXECUTE_PROCESS(COMMAND git rev-parse HEAD

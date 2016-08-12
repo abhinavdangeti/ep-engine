@@ -184,9 +184,12 @@ bool Flusher::step(GlobalTask *task) {
         if (_state == running) {
             double tosleep = computeMinSleepTime();
             if (tosleep > 0) {
-                store->commit(shard->getId());
-                resetCommitInterval();
-                task->snooze(tosleep);
+                //store->commit(shard->getId());
+                //resetCommitInterval();
+                std::vector<VBucket::id_type> vbs = shard->getVBuckets();
+                if (vbs.empty()) {
+                    task->snooze(tosleep);
+                }
             }
         }
         return true;

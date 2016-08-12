@@ -369,7 +369,11 @@ public:
         delTimeHisto.reset();
         compactHisto.reset();
         snapshotHisto.reset();
+        fdbSetStateHisto.reset();
+        fdbKvsInfoHisto.reset();
+        fdbFileInfoHisto.reset();
         commitHisto.reset();
+        commitCallbackHisto.reset();
         saveDocsHisto.reset();
         batchSize.reset();
         fsStats.reset();
@@ -413,8 +417,22 @@ public:
     Histogram<size_t> writeSizeHisto;
     // Time spent in delete() calls.
     Histogram<hrtime_t> delTimeHisto;
+
+    //Time spent in fdb_set for vbucket state
+    Histogram<hrtime_t> fdbSetStateHisto;
+
     // Time spent in commit
     Histogram<hrtime_t> commitHisto;
+
+    //Time spent in fdb_kvs_info call
+    Histogram<hrtime_t> fdbKvsInfoHisto;
+
+    //Time spent in fdb_file_info call
+    Histogram<hrtime_t> fdbFileInfoHisto;
+
+    //Time spent in commitCallback call
+    Histogram<hrtime_t> commitCallbackHisto;
+
     // Time spent in compaction
     Histogram<hrtime_t> compactHisto;
     // Time spent in saving documents to disk

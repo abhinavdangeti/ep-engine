@@ -539,6 +539,9 @@ public:
     //! Histogram of update disk writes
     Histogram<hrtime_t> diskUpdateHisto;
 
+    //! Histogram of cumulative disk updates
+    Histogram<hrtime_t> cumuDiskUpdateHisto;
+
     //! Histogram of delete disk writes
     Histogram<hrtime_t> diskDelHisto;
 
@@ -547,6 +550,9 @@ public:
 
     //! Histogram of disk commits
     Histogram<hrtime_t> diskCommitHisto;
+
+    //! Histogram of flush time
+    Histogram<hrtime_t> flushTimeHisto;
 
     //! Histogram of setting vbucket state
     Histogram<hrtime_t> snapshotVbucketHisto;
@@ -641,6 +647,7 @@ public:
         diskDelHisto.reset();
         diskVBDelHisto.reset();
         diskCommitHisto.reset();
+        cumuDiskUpdateHisto.reset();
         snapshotVbucketHisto.reset();
         persistVBStateHisto.reset();
         itemAllocSizeHisto.reset();

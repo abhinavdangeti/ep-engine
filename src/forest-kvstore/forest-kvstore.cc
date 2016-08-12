@@ -145,14 +145,17 @@ ForestKVStore::ForestKVStore(KVStoreConfig &config) :
      */
     fileConfig.breakpad_minidump_dir = nullptr;
 
-    /* Set the buffer cache value to 6 GiB for performance */
+    /* Set buffer cache to 6 GiB */
     fileConfig.buffercache_size = 6442450944;
 
-    /* Setting wal_threshold to 40k */
+    /* Setting wal_threshold to 40960 */
     fileConfig.wal_threshold = 40960;
 
     /* Disable block reuse */
     fileConfig.block_reusing_threshold = 100;
+
+    /* Disable wal flush before commit */
+    fileConfig.wal_flush_before_commit = false;
 
     statCollectingFileOps = getForestStatOps(&st.fsStats);
 
@@ -919,13 +922,19 @@ bool ForestKVStore::save2forestdb() {
         return true;
     }
 
+    uint16_t vb2save = pendingReqsQ[0]->getVBucketId();
+
     uint16_t maxVbuckets = configuration.getMaxVBuckets();
     uint16_t numShards = configuration.getMaxShards();
     uint16_t shardId = configuration.getShardId();
 
     LockHolder lh(writerLock);
 
-    for (uint16_t vbid = shardId; vbid < maxVbuckets; vbid += numShards) {
+    //for (uint16_t vbid = shardId; vbid < maxVbuckets; vbid += numShards) {
+
+        hrtime_t start = gethrtime();
+
+        uint16_t vbid = vb2save;
         vbucket_state* state = cachedVBStates[vbid];
         if (state != nullptr) {
             std::string stateStr = state->toJSON();
@@ -954,9 +963,11 @@ bool ForestKVStore::save2forestdb() {
                 }
             }
         }
-    }
 
-    hrtime_t start = gethrtime();
+        st.fdbSetStateHisto.add((gethrtime() - start) / 1000);
+    //}
+
+    start = gethrtime();
     fdb_status status = fdb_commit(writeDBFileHandle, FDB_COMMIT_NORMAL);
     if (status != FDB_RESULT_SUCCESS) {
         throw std::runtime_error("ForestKVStore::save2forestdb: "
@@ -966,10 +977,14 @@ bool ForestKVStore::save2forestdb() {
 
     st.commitHisto.add((gethrtime() - start) / 1000);
 
-    for (uint16_t vbId = shardId; vbId < maxVbuckets; vbId += numShards) {
-        fdb_kvs_handle* kvsHandle = getOrCreateKvsHandle(vbId, handleType::WRITER);
+    //for (uint16_t vbId = shardId; vbId < maxVbuckets; vbId += numShards) {
+
+    start = gethrtime();
+
+        uint16_t vbId = vbid;
+        fdb_kvs_handle* kvsHandle = getKvsHandle(vbId, handleType::WRITER);
         fdb_kvs_info kvsInfo;
-        fdb_status status = fdb_get_kvs_info(kvsHandle, &kvsInfo);
+        status = fdb_get_kvs_info(kvsHandle, &kvsInfo);
 
         if (status == FDB_RESULT_SUCCESS) {
             cachedDeleteCount[vbId] = kvsInfo.deleted_count;
@@ -984,15 +999,28 @@ bool ForestKVStore::save2forestdb() {
                 std::to_string(vbId) + " with error: " +
                 std::string(fdb_error_msg(status)));
         }
-    }
+    //}
+
+    st.fdbKvsInfoHisto.add((gethrtime() - start) / 1000);
+
+    start = gethrtime();
+
+    updateFileInfo();
+
+    st.fdbFileInfoHisto.add((gethrtime() - start) / 1000);
+
+    lh.unlock();
+
+    start = gethrtime();
 
     commitCallback(pendingReqsQ);
+
+    st.commitCallbackHisto.add((gethrtime() - start) / 1000);
 
     for (size_t i = 0; i < pendingCommitCnt; i++) {
         delete pendingReqsQ[i];
     }
 
-    updateFileInfo();
 
     pendingReqsQ.clear();
 
@@ -1412,8 +1440,6 @@ bool ForestKVStore::snapshotVBucket(uint16_t vbucketId, vbucket_state& vbstate,
 
     hrtime_t start = gethrtime();
 
-    LockHolder lh(writerLock);
-
     if (updateCachedVBState(vbucketId, vbstate) &&
          (options == VBStatePersist::VBSTATE_PERSIST_WITHOUT_COMMIT ||
           options == VBStatePersist::VBSTATE_PERSIST_WITH_COMMIT)) {
@@ -1429,6 +1455,7 @@ bool ForestKVStore::snapshotVBucket(uint16_t vbucketId, vbucket_state& vbstate,
         statDoc.body = const_cast<char *>(stateStr.c_str());
         statDoc.bodylen = stateStr.length();
 
+        LockHolder lh(writerLock);
         fdb_status status = fdb_set(writeVbStateHandle, &statDoc);
 
         if (status != FDB_RESULT_SUCCESS) {

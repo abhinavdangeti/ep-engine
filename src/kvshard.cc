@@ -46,7 +46,6 @@ KVShard::KVShard(uint16_t id, EventuallyPersistentStore &store) :
         rwUnderlying = KVStoreFactory::create(kvConfig);
         roUnderlying = rwUnderlying;
         //commitInterval = config.getMaxVbuckets()/config.getMaxNumShards();
-        commitInterval = 8;
     }
 
     flusher = new Flusher(&store, this, commitInterval);

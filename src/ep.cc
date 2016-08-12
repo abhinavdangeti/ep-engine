@@ -3264,29 +3264,34 @@ int EventuallyPersistentStore::flushVBucket(uint16_t vbid) {
             uint64_t maxCas = 0;
             uint64_t maxDeletedRevSeqno = 0;
             std::list<PersistenceCallback*>& pcbs = rwUnderlying->getPersistenceCbList();
-            std::vector<queued_item>::iterator it = items.begin();
-            for(; it != items.end(); ++it) {
-                if ((*it)->getOperation() != queue_op_set &&
-                    (*it)->getOperation() != queue_op_del) {
-                    continue;
-                } else if (!prev || prev->getKey() != (*it)->getKey()) {
-                    prev = (*it).get();
-                    ++items_flushed;
-                    PersistenceCallback *cb = flushOneDelOrSet(*it, vb);
-                    if (cb) {
-                        pcbs.push_back(cb);
-                    }
 
-                    maxSeqno = std::max(maxSeqno, (uint64_t)(*it)->getBySeqno());
-                    maxCas = std::max(maxCas, (uint64_t)(*it)->getCas());
-                    if ((*it)->isDeleted()) {
-                        maxDeletedRevSeqno = std::max(maxDeletedRevSeqno,
-                                                      (uint64_t)(*it)->getRevSeqno());
-                    }
-                    ++stats.flusher_todo;
-                } else {
-                    stats.decrDiskQueueSize(1);
-                    vb->doStatsForFlushing(*(*it), (*it)->size());
+            {
+                BlockTimer timer(&stats.cumuDiskUpdateHisto, "cumu_disk_update", stats.timingLog);
+
+                std::vector<queued_item>::iterator it = items.begin();
+                for(; it != items.end(); ++it) {
+                    if ((*it)->getOperation() != queue_op_set &&
+                        (*it)->getOperation() != queue_op_del) {
+                        continue;
+                    } else if (!prev || prev->getKey() != (*it)->getKey()) {
+                        prev = (*it).get();
+                        ++items_flushed;
+                        PersistenceCallback *cb = flushOneDelOrSet(*it, vb);
+                        if (cb) {
+                            pcbs.push_back(cb);
+                        }
+
+                        maxSeqno = std::max(maxSeqno, (uint64_t)(*it)->getBySeqno());
+                        maxCas = std::max(maxCas, (uint64_t)(*it)->getCas());
+                        if ((*it)->isDeleted()) {
+                            maxDeletedRevSeqno = std::max(maxDeletedRevSeqno,
+                                                          (uint64_t)(*it)->getRevSeqno());
+                        }
+                        ++stats.flusher_todo;
+                    } else {
+                        stats.decrDiskQueueSize(1);
+                        vb->doStatsForFlushing(*(*it), (*it)->size());
+                   }
                 }
             }
 
@@ -3333,6 +3338,9 @@ int EventuallyPersistentStore::flushVBucket(uint16_t vbid) {
                                        static_cast<double>(trans_time) /
                                        static_cast<double>(items_flushed));
             stats.cumulativeFlushTime.fetch_add(trans_time);
+
+            stats.flushTimeHisto.add((gethrtime() - flush_start));
+
             stats.flusher_todo.store(0);
             if (vb->rejectQueue.empty()) {
                 vb->setPersistedSnapshot(range.start, range.end);
