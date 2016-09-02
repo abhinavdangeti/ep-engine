@@ -184,12 +184,14 @@ bool Flusher::step(GlobalTask *task) {
         if (_state == running) {
             double tosleep = computeMinSleepTime();
             if (tosleep > 0) {
-                //store->commit(shard->getId());
-                //resetCommitInterval();
-                std::vector<VBucket::id_type> vbs = shard->getVBuckets();
-                if (vbs.empty()) {
-                    task->snooze(tosleep);
+                if (currCommitInterval > 0 &&
+                    currCommitInterval < initCommitInterval) {
+                    // Commit before snoozing the flusher if some vbuckets
+                    // are already flushed but not committed yet
+                    store->commit(shard->getId());
+                    resetCommitInterval();
                 }
+                task->snooze(tosleep);
             }
         }
         return true;
