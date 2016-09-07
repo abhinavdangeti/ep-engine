@@ -45,6 +45,7 @@ KVShard::KVShard(uint16_t id, EventuallyPersistentStore &store) :
     } else if (backend.compare("forestdb") == 0) {
         rwUnderlying = KVStoreFactory::create(kvConfig);
         roUnderlying = rwUnderlying;
+        commitInterval = 2;
         //commitInterval = config.getMaxVbuckets()/config.getMaxNumShards();
     }
 
