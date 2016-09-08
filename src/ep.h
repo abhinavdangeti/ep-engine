@@ -479,8 +479,9 @@ public:
     void updateCompactionTasks(uint16_t db_file_id);
 
     /**
-     * Reset a given vbucket from memory and disk. This differs from vbucket deletion in that
-     * it does not delete the vbucket instance from memory hash table.
+     * Reset a given vbucket from memory and disk. This differs from vbucket
+     * deletion in that it does not delete the vbucket instance from memory
+     * hash table.
      */
     bool resetVBucket(uint16_t vbid);
 
@@ -927,10 +928,6 @@ protected:
                                             const std::string &key, RCPtr<VBucket> &vb,
                                             const void *cookie, bool metadataOnly,
                                             bool isReplication = false);
-
-    uint16_t getCommitInterval(uint16_t shardId);
-
-    uint16_t decrCommitInterval(uint16_t shardId);
 
     friend class Warmup;
     friend class PersistenceCallback;
