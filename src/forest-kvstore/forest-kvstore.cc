@@ -149,6 +149,9 @@ ForestKVStore::ForestKVStore(KVStoreConfig &config, bool read_only)
     // pre-allocate all files' block cache hits and block cache misses
     cachedBlockCacheHits.assign(numDbFiles, Couchbase::RelaxedAtomic<size_t>(0));
     cachedBlockCacheMisses.assign(numDbFiles, Couchbase::RelaxedAtomic<size_t>(0));
+    cachedBlockCacheNumItems.assign(numDbFiles, Couchbase::RelaxedAtomic<size_t>(0));
+    cachedBlockCacheNumVictims.assign(numDbFiles, Couchbase::RelaxedAtomic<size_t>(0));
+    cachedBlockCacheNumImmutables.assign(numDbFiles, Couchbase::RelaxedAtomic<size_t>(0));
 
     initialize();
 }
@@ -210,6 +213,11 @@ ForestKVStore::~ForestKVStore() {
         }
     }
 
+    for (size_t i = 0; i < stateFKvsHandleMap.size() +
+                           roFKvsHandleMap.size() +
+                           rwFKvsHandleMap.size(); ++i) {
+        st.numClose++;
+    }
     stateFKvsHandleMap.clear();
     roFKvsHandleMap.clear();
     rwFKvsHandleMap.clear();
@@ -228,6 +236,8 @@ void ForestKVStore::reset(uint16_t vbId) {
     rwFKvsHandleMap[vbId] = nullptr;
     roFKvsHandleMap[vbId] = nullptr;
     stateFKvsHandleMap[vbId] = nullptr;
+
+    st.numClose += 3;
 
     std::string dbFile = getDBFileName(dbname, vbId, dbFileRevMap[vbId]);
     fdb_status status = FDB_RESULT_SUCCESS;
@@ -267,6 +277,9 @@ void ForestKVStore::reset(uint16_t vbId) {
     cachedSpaceUsed[vbId] = 0;
     cachedBlockCacheHits[vbId] = 0;
     cachedBlockCacheMisses[vbId] = 0;
+    cachedBlockCacheNumItems[vbId] = 0;
+    cachedBlockCacheNumVictims[vbId] = 0;
+    cachedBlockCacheNumImmutables[vbId] = 0;
 
     updateDbFileMap(vbId, 1);
 }
@@ -492,6 +505,8 @@ bool ForestKVStore::delVBucket(uint16_t vbId) {
     roFKvsHandleMap[vbId] = nullptr;
     stateFKvsHandleMap[vbId] = nullptr;
 
+    st.numClose += 3;
+
     fdb_status status = fdb_destroy(getDBFileName(dbname,
                                                   vbId,
                                                   dbFileRevMap[vbId]).c_str(),
@@ -527,6 +542,9 @@ bool ForestKVStore::delVBucket(uint16_t vbId) {
     cachedSpaceUsed[vbId] = 0;
     cachedBlockCacheHits[vbId] = 0;
     cachedBlockCacheMisses[vbId] = 0;
+    cachedBlockCacheNumItems[vbId] = 0;
+    cachedBlockCacheNumVictims[vbId] = 0;
+    cachedBlockCacheNumImmutables[vbId] = 0;
 
     updateDbFileMap(vbId, 1);
 
@@ -861,6 +879,9 @@ bool ForestKVStore::save2forestdb() {
     if (status == FDB_RESULT_SUCCESS) {
         cachedBlockCacheHits[vbucket2flush] = ctx.stats["Block_cache_hits"];
         cachedBlockCacheMisses[vbucket2flush] = ctx.stats["Block_cache_misses"];
+        cachedBlockCacheNumItems[vbucket2flush] = ctx.stats["Block_cache_num_items"];
+        cachedBlockCacheNumVictims[vbucket2flush] = ctx.stats["Block_cache_num_victims"];
+        cachedBlockCacheNumImmutables[vbucket2flush] = ctx.stats["Block_cache_num_immutables"];
     }
 
     return true;
@@ -948,6 +969,7 @@ std::shared_ptr<ForestKvsHandle> ForestKVStore::getOrCreateFKvsHandle(
             if (!roFKvsHandleMap[vbId]) {
                 std::unique_ptr<ForestKvsHandle> fkvs(createFKvsHandle(vbId));
                 roFKvsHandleMap[vbId] = std::move(fkvs);
+                st.numOpen++;
             }
             return roFKvsHandleMap[vbId];
 
@@ -955,6 +977,7 @@ std::shared_ptr<ForestKvsHandle> ForestKVStore::getOrCreateFKvsHandle(
             if (!rwFKvsHandleMap[vbId]) {
                 std::unique_ptr<ForestKvsHandle> fkvs(createFKvsHandle(vbId));
                 rwFKvsHandleMap[vbId] = std::move(fkvs);
+                st.numOpen++;
             }
             return rwFKvsHandleMap[vbId];
 
@@ -963,6 +986,7 @@ std::shared_ptr<ForestKvsHandle> ForestKVStore::getOrCreateFKvsHandle(
                 std::unique_ptr<ForestKvsHandle> fkvs(createFKvsHandle(
                                                     vbId, true/*defaultKVS*/));
                 stateFKvsHandleMap[vbId] = std::move(fkvs);
+                st.numOpen++;
             }
             return stateFKvsHandleMap[vbId];
         default:
@@ -982,6 +1006,27 @@ bool ForestKVStore::getStat(const char* name, size_t& value) {
         size_t count = 0;
         for (uint16_t vbid = 0; vbid < numDbFiles; ++vbid) {
             count += cachedBlockCacheMisses[vbid];
+        }
+        value = count;
+        return true;
+    } else if (strcmp("Block_cache_num_items", name) == 0) {
+        size_t count = 0;
+        for (uint16_t vbid = 0; vbid < numDbFiles; ++ vbid) {
+            count += cachedBlockCacheNumItems[vbid];
+        }
+        value = count;
+        return true;
+    } else if (strcmp("Block_cache_num_victims", name) == 0) {
+        size_t count = 0;
+        for (uint16_t vbid = 0; vbid < numDbFiles; ++vbid) {
+            count += cachedBlockCacheNumVictims[vbid];
+        }
+        value = count;
+        return true;
+    } else if (strcmp("Block_cache_num_immutables", name) == 0) {
+        size_t count = 0;
+        for (uint16_t vbid = 0; vbid < numDbFiles; ++vbid) {
+            count += cachedBlockCacheNumImmutables[vbid];
         }
         value = count;
         return true;
@@ -1186,6 +1231,9 @@ void ForestKVStore::getMulti(uint16_t vb, vb_bgfetch_queue_t& itms) {
     if (status == FDB_RESULT_SUCCESS) {
         cachedBlockCacheHits[vb] = ctx.stats["Block_cache_hits"];
         cachedBlockCacheMisses[vb] = ctx.stats["Block_cache_misses"];
+        cachedBlockCacheNumItems[vb] = ctx.stats["Block_cache_num_items"];
+        cachedBlockCacheNumVictims[vb] = ctx.stats["Block_cache_num_victims"];
+        cachedBlockCacheNumImmutables[vb] = ctx.stats["Block_cache_num_immutables"];
     }
 }
 
