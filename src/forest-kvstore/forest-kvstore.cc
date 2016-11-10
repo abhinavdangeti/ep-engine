@@ -125,6 +125,22 @@ ForestKVStore::ForestKVStore(KVStoreConfig &config, bool read_only)
 
     fileConfig.custom_file_ops = &statCollectingFileOps;
 
+    /* Set the buffer cache value to 3 GiB for performance */
+    fileConfig.buffercache_size = 3221225472;
+
+    /* Setting WAL threshold to 4K */
+    fileConfig.wal_threshold = 4096;
+
+    /* block reuse threshold */
+    fileConfig.block_reusing_threshold = 75;
+
+    /* Disabling wal flush before commit */
+    fileConfig.wal_flush_before_commit = false;
+
+    /* WAL/Bcache shards (set to 7 as ep-engine has 4 shards) */
+    fileConfig.num_wal_partitions = 7;
+    fileConfig.num_bcache_partitions = 7;
+
     // init db file map with default revision number, 1
     numDbFiles = configuration.getMaxVBuckets();
     cachedVBStates.reserve(numDbFiles);
