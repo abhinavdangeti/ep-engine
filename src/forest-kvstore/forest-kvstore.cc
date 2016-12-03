@@ -333,7 +333,10 @@ ENGINE_ERROR_CODE ForestKVStore::readVBState(uint16_t vbId) {
     fdb_doc* statDoc;
     fdb_doc_create(&statDoc, (void *)keybuf, strlen(keybuf), NULL, 0, NULL, 0);
 
+    EventuallyPersistentEngine *epe = ObjectRegistry::onSwitchThread(NULL, true);
     status = fdb_get(fkvsHandle->getKvsHandle(), statDoc);
+    ObjectRegistry::onSwitchThread(epe);
+
     if (status != FDB_RESULT_SUCCESS) {
         LOG(EXTENSION_LOG_DEBUG,
             "ForestKVStore::readVBState: Failed to retrieve vbucket state for "
@@ -447,7 +450,9 @@ bool ForestKVStore::setVBucketState(uint16_t vbId, vbucket_state* vbstate) {
         statDoc.body = const_cast<char *>(stateStr.c_str());
         statDoc.bodylen = stateStr.length();
 
+        EventuallyPersistentEngine *epe = ObjectRegistry::onSwitchThread(NULL, true);
         status = fdb_set(fkvsHandle->getKvsHandle(), &statDoc);
+        ObjectRegistry::onSwitchThread(epe);
         if (status != FDB_RESULT_SUCCESS) {
             logger.log(EXTENSION_LOG_WARNING,
                        "ForestKVStore::setVBucketState:Failed to save "
@@ -472,7 +477,7 @@ void ForestKVStore::updateFileInfo(ForestKvsHandle* fKvsHandle,
     status = fdb_get_file_info(fKvsHandle->getFileHandle(), &finfo);
     if (status == FDB_RESULT_SUCCESS) {
         cachedFileSize[vbId] = finfo.file_size;
-        cachedSpaceUsed[vbId] = finfo.space_used;
+        cachedSpaceUsed[vbId] = finfo.file_size;
     } else {
         logger.log(EXTENSION_LOG_WARNING,
                 "ForestKVStore::updateFileInfo: Getting file info"
@@ -590,11 +595,13 @@ void ForestKVStore::getWithHeader(void* handle, const DocKey& key,
     rdoc.key = const_cast<char *>(reinterpret_cast<const char*>(key.data()));
     rdoc.keylen = key.size();
 
+    EventuallyPersistentEngine *epe = ObjectRegistry::onSwitchThread(NULL, true);
     if (!getMetaOnly) {
         status = fdb_get(kvsHandle, &rdoc);
     } else {
         status = fdb_get_metaonly(kvsHandle, &rdoc);
     }
+    ObjectRegistry::onSwitchThread(epe);
 
     if (status != FDB_RESULT_SUCCESS) {
         if (!getMetaOnly) {
@@ -847,8 +854,10 @@ bool ForestKVStore::save2forestdb() {
                                                            HandleType::WRITER);
 
     hrtime_t start = gethrtime();
+    EventuallyPersistentEngine *epe = ObjectRegistry::onSwitchThread(NULL, true);
     fdb_status status = fdb_commit(fkvsHandle->getFileHandle(),
                                    FDB_COMMIT_NORMAL);
+    ObjectRegistry::onSwitchThread(epe);
     if (status != FDB_RESULT_SUCCESS) {
         throw std::runtime_error("ForestKVStore::save2forestdb: "
             "fdb_commit failed for vbucket id: " + std::to_string(vbucket2flush) +
@@ -1109,7 +1118,9 @@ void ForestKVStore::set(const Item& itm, Callback<mutation_result>& cb) {
     std::shared_ptr<ForestKvsHandle> fkvsHandle = getOrCreateFKvsHandle(
                                             req->getVBucketId(), HandleType::WRITER);
 
+    EventuallyPersistentEngine *epe = ObjectRegistry::onSwitchThread(NULL, true);
     status = fdb_set(fkvsHandle->getKvsHandle(), &setDoc);
+    ObjectRegistry::onSwitchThread(epe);
     if (status != FDB_RESULT_SUCCESS) {
         LOG(EXTENSION_LOG_WARNING, "ForestKVStore::set: fdb_set failed "
             "for key{%s} and vb:%" PRIu16 " with error:%s",
@@ -1139,9 +1150,11 @@ ForestKVStore::getAllKeys(uint16_t vbid,
     std::unique_ptr<ForestKvsHandle> fkvsHandle(createFKvsHandle(vbid));
 
     fdb_iterator* fdb_iter = NULL;
+    EventuallyPersistentEngine *epe = ObjectRegistry::onSwitchThread(NULL, true);
     fdb_status status = fdb_iterator_init(fkvsHandle->getKvsHandle(), &fdb_iter,
                                           start_key.data(), start_key.size(),
                                           NULL, 0, FDB_ITR_NO_DELETES);
+    ObjectRegistry::onSwitchThread(epe);
     if (status != FDB_RESULT_SUCCESS) {
         throw std::runtime_error("ForestKVStore::getAllKeys: iterator "
                    "initalization failed for vbucket id " + std::to_string(vbid) +
@@ -1151,7 +1164,9 @@ ForestKVStore::getAllKeys(uint16_t vbid,
     fdb_doc* rdoc = NULL;
     status = fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
     if (status != FDB_RESULT_SUCCESS) {
+       epe = ObjectRegistry::onSwitchThread(NULL, true);
        fdb_iterator_close(fdb_iter);
+       ObjectRegistry::onSwitchThread(epe);
        throw std::runtime_error("ForestKVStore::getAllKeys: creating "
                   "the document failed for vbucket id:" +
                   std::to_string(vbid) + " with error:" +
@@ -1175,13 +1190,18 @@ ForestKVStore::getAllKeys(uint16_t vbid,
         // Collection: Currently only create the key in the DefaultCollection
         cb->callback(DocKey(key, keylen, DocNamespace::DefaultCollection));
 
+        epe = ObjectRegistry::onSwitchThread(NULL, true);
         if (fdb_iterator_next(fdb_iter) != FDB_RESULT_SUCCESS) {
+            ObjectRegistry::onSwitchThread(epe);
             break;
         }
+        ObjectRegistry::onSwitchThread(epe);
     }
 
     fdb_doc_free(rdoc);
+    epe = ObjectRegistry::onSwitchThread(NULL, true);
     fdb_iterator_close(fdb_iter);
+    ObjectRegistry::onSwitchThread(epe);
 
     return ENGINE_SUCCESS;
 }
@@ -1339,7 +1359,9 @@ bool ForestKVStore::snapshotVBucket(uint16_t vbucketId,
                                            vbucketId, HandleType::STATE_SNAP);
 
         if (options == VBStatePersist::VBSTATE_PERSIST_WITH_COMMIT) {
+            EventuallyPersistentEngine *epe = ObjectRegistry::onSwitchThread(NULL, true);
             status = fdb_commit(fkvsHandle->getFileHandle(), FDB_COMMIT_NORMAL);
+            ObjectRegistry::onSwitchThread(epe);
 
             if (status != FDB_RESULT_SUCCESS) {
                 LOG(EXTENSION_LOG_WARNING, "ForestKVStore::snapshotVBucket: Failed "
@@ -1652,12 +1674,14 @@ size_t ForestKVStore::getNumItems(fdb_kvs_handle* kvsHandle,
     // needs MB-16563.
     size_t totalCount = 0;
     fdb_iterator* fdb_iter = nullptr;
+    EventuallyPersistentEngine *epe = ObjectRegistry::onSwitchThread(NULL, true);
     fdb_status status = fdb_iterator_sequence_init(kvsHandle, &fdb_iter, min_seq,
                                                    max_seq, FDB_ITR_NONE);
     if (status != FDB_RESULT_SUCCESS) {
         std::string err("ForestKVStore::getNumItems: ForestDB iterator "
             "initialization failed with error: " +
              std::string(fdb_error_msg(status)));
+        ObjectRegistry::onSwitchThread(epe);
         throw std::runtime_error(err);
     }
 
@@ -1666,6 +1690,7 @@ size_t ForestKVStore::getNumItems(fdb_kvs_handle* kvsHandle,
     } while (fdb_iterator_next(fdb_iter) == FDB_RESULT_SUCCESS);
 
     fdb_iterator_close(fdb_iter);
+    ObjectRegistry::onSwitchThread(epe);
 
     return totalCount;
 }
