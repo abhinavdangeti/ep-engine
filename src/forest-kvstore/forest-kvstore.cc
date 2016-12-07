@@ -90,6 +90,23 @@ void ForestKVStore::shutdownForestDb() {
    }
 }
 
+// lexicographically compares two variable-length binary streams
+#define MIN(a,b) (((a)<(b))?(a):(b))
+
+static int lexico_cmp(void *key1, size_t keylen1, void *key2, size_t keylen2) {
+    if (keylen1 == keylen2) {
+        return memcmp(key1, key2, keylen1);
+    } else {
+        size_t len = MIN(keylen1, keylen2);
+        int cmp = memcmp(key1, key2, len);
+        if (cmp != 0) {
+            return cmp;
+        } else {
+            return (int)((int)keylen1 - (int)keylen2);
+        }
+    }
+}
+
 ForestKVStore::ForestKVStore(KVStoreConfig &config, bool read_only)
     : KVStore(config, read_only),
       dbname(config.getDBName()),
@@ -140,6 +157,9 @@ ForestKVStore::ForestKVStore(KVStoreConfig &config, bool read_only)
     /* WAL/Bcache shards (set to 7 as ep-engine has 4 shards) */
     fileConfig.num_wal_partitions = 7;
     fileConfig.num_bcache_partitions = 7;
+
+    /* Set custom compare function to not use the hbtrie */
+    kvsConfig.custom_cmp = lexico_cmp;
 
     // init db file map with default revision number, 1
     numDbFiles = configuration.getMaxVBuckets();
@@ -974,7 +994,11 @@ ForestKvsHandle* ForestKVStore::createFKvsHandle(uint16_t vbId, bool defaultKVS)
 
     std::string dbFile = getDBFileName(dbname, vbId, dbFileRevMap[vbId]);
 
-    status = fdb_open(&newDBFileHandle, dbFile.c_str(), &fileConfig);
+    //status = fdb_open(&newDBFileHandle, dbFile.c_str(), &fileConfig);
+    char *kvs_names[] = {(char*)"default"};
+    fdb_custom_cmp_variable functions[] = {lexico_cmp};
+    status = fdb_open_custom_cmp(&newDBFileHandle, dbFile.c_str(), &fileConfig,
+                                 1, kvs_names, functions);
     if (status != FDB_RESULT_SUCCESS) {
         throw std::runtime_error("ForestKVStore::createFKvsHandle: Opening a "
                                  "database file instance failed with error: " +
